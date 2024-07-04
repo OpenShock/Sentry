@@ -1,0 +1,9 @@
+{
+  "dependencies": [
+    {
+      "name": "opencv4",
+      "features": ["contrib", "eigen", "jpeg", "png", "webp"],
+      "platform": "(x64)"
+    }
+  ]
+}
