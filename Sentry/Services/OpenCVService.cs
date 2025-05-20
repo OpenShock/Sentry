@@ -25,7 +25,7 @@ public sealed class OpenCVService
         // … your setup up to orb/template loading stays the same …
 
         // Pre-compute template once
-        using var templateMat = Cv2.ImRead(@"C:\Users\Lucpe\Desktop\mc5.png", ImreadModes.Grayscale);
+        using var templateMat = Cv2.ImRead(@"C:\Users\Lucpe\Desktop\mc6.png", ImreadModes.Grayscale);
         using var orb = ORB.Create();
         var descTemplate = new Mat();
         orb.DetectAndCompute(templateMat, null, out var kpTemplate, descTemplate);
@@ -49,15 +49,17 @@ public sealed class OpenCVService
             Cv2.CvtColor(srcMat, grayMat, ColorConversionCodes.BGRA2GRAY);
 
             // 3) Try to match
-            if (FindImage(orb, grayMat, kpTemplate, descTemplate, templateMat.Size(), out var rect))
+            var found = FindImage(orb, grayMat, kpTemplate, descTemplate, templateMat.Size(), out var rect);
+            if (found)
             {
                 Console.WriteLine($"Found at {rect}"); 
-                Cv2.Rectangle(srcMat, rect, Scalar.LimeGreen, 3);
             }
             else
             {
                 Console.WriteLine("No match.");
             }
+            
+            if(rect != default) Cv2.Rectangle(srcMat, rect, found ? Scalar.LimeGreen : Scalar.Orange, 3);
 
             // 4) Show & process events **every** frame
             Cv2.ImShow("Screen Match", srcMat);
@@ -75,6 +77,7 @@ public sealed class OpenCVService
         Size tplSize,
         out Rect found)
     {
+        var isFound = true;
         found = default;
 
         // 1) detect scene features
@@ -85,21 +88,23 @@ public sealed class OpenCVService
         // 2) match & filter by distance (tune 50→30 for stricter, 75 for looser)
         var matcher = new BFMatcher(NormTypes.Hamming, crossCheck: true);
         var matches = matcher.Match(descTemplate, descScene)
-            .Where(m => m.Distance < 30)
+            .Where(m => m.Distance < 40)
             .ToArray();
         if (matches.Length < 8)  // need at least 8 good matches
-            return false;
+            isFound = false;
 
         Console.WriteLine(
             $"TplKP={kpTemplate.Length}, SceneKP={kpScene.Length}, Good={matches.Length}");
 
+        if(matches.Length < 4) return false;
+        
         // 3) homography
         var srcPts = matches.Select(m => kpTemplate[m.QueryIdx].Pt).ToArray();
         var dstPts = matches.Select(m => kpScene[m.TrainIdx].Pt).ToArray();
         using var H = Cv2.FindHomography(InputArray.Create(srcPts),
             InputArray.Create(dstPts),
             HomographyMethods.Ransac);
-        if (H.Empty()) return false;
+        if (H.Empty()) isFound = false;
 
         // 4) warp corners → bounding rect
         var corners = new[]
@@ -111,6 +116,6 @@ public sealed class OpenCVService
         };
         var sceneCorners = Cv2.PerspectiveTransform(corners, H);
         found = Cv2.BoundingRect(sceneCorners);
-        return true;
+        return isFound;
     }
 }
