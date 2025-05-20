@@ -1,0 +1,1 @@
+copy Sentry\bin\Debug\net9.0\OpenShock.Sentry.dll %appdata%\OpenShock\Desktop\modules\openshock.sentry\OpenShock.Sentry.dll
