@@ -1,0 +1,569 @@
+@using OpenShock.Desktop.ModuleBase.Models
+@implements IDisposable
+
+<MudStack Spacing="3" Class="pa-4">
+
+    <MudText Typo="Typo.h5">Profile Editor</MudText>
+
+    @* Profile selector + new/delete *@
+    <MudCard>
+        <MudCardContent>
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                <MudSelect T="string" Label="Profile" Value="_selectedProfile"
+                           Variant="Variant.Outlined" Dense="true" Style="max-width: 250px;"
+                           ValueChanged="OnProfileSelected">
+                    @foreach (var p in _profiles)
+                    {
+                        <MudSelectItem Value="@p">@p</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                           OnClick="NewProfile" StartIcon="@Icons.Material.Filled.Add">
+                    New
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                           OnClick="DeleteProfile" Disabled="@(_profile is null)"
+                           StartIcon="@Icons.Material.Filled.Delete">
+                    Delete
+                </MudButton>
+                <MudSpacer />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                           OnClick="SaveProfile" Disabled="@(_profile is null)"
+                           StartIcon="@Icons.Material.Filled.Save">
+                    Save
+                </MudButton>
+            </MudStack>
+        </MudCardContent>
+    </MudCard>
+
+    @if (_profile is not null)
+    {
+        @* Basic info *@
+        <MudCard>
+            <MudCardContent>
+                <MudGrid>
+                    <MudItem xs="6">
+                        <MudTextField @bind-Value="_profile.Name" Label="Profile Name"
+                                      Variant="Variant.Outlined" Dense="true" />
+                    </MudItem>
+                    <MudItem xs="6">
+                        <MudTextField @bind-Value="_profile.ProcessName" Label="Process Name (optional)"
+                                      Variant="Variant.Outlined" Dense="true"
+                                      HelperText="e.g. helldivers2, javaw" />
+                    </MudItem>
+                </MudGrid>
+            </MudCardContent>
+        </MudCard>
+
+        @* Region Preview *@
+        <MudCard>
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudText Typo="Typo.h6">Region Preview</MudText>
+                        <MudIconButton Icon="@Icons.Material.Filled.CameraAlt" Size="Size.Small"
+                                       OnClick="CapturePreview" Title="Capture screenshot for region preview" />
+                    </MudStack>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent Style="padding: 0;">
+                <RegionPreview @ref="_regionPreview"
+                               ImageDataUri="@_previewDataUri"
+                               Regions="_regionItems"
+                               OnRegionChanged="OnRegionDragged"
+                               OnRegionSelected="OnRegionClicked"
+                               PlaceholderText="Click the camera icon to capture a screenshot for region preview." />
+            </MudCardContent>
+        </MudCard>
+
+        @* Detectors *@
+        <MudCard>
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudText Typo="Typo.h6">Detectors</MudText>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                   OnClick="AddDetector" StartIcon="@Icons.Material.Filled.Add">
+                            Add Detector
+                        </MudButton>
+                    </MudStack>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                @if (_profile.Detectors.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">
+                        No detectors configured. Click "Add Detector" to create one.
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudExpansionPanels MultiExpansion="true">
+                        @for (var i = 0; i < _profile.Detectors.Count; i++)
+                        {
+                            var detector = _profile.Detectors[i];
+                            var index = i;
+                            var color = _regionColors[i % _regionColors.Length];
+
+                            <MudExpansionPanel @bind-Expanded="detector._expanded"
+                                               Style="@($"border-left: 4px solid {color};")">
+                                <TitleContent>
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                        <MudText Typo="Typo.subtitle1">@(string.IsNullOrEmpty(detector.Name) ? "(unnamed)" : detector.Name)</MudText>
+                                        <MudChip T="string" Size="Size.Small" Color="@GetBackendColor(detector.Backend)">@detector.Backend</MudChip>
+                                        <MudChip T="string" Size="Size.Small">@detector.EventType</MudChip>
+                                        <MudSpacer />
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                                       Size="Size.Small" OnClick="() => RemoveDetector(index)"
+                                                       Title="Remove detector" />
+                                    </MudStack>
+                                </TitleContent>
+                                <ChildContent>
+                                    <MudGrid Spacing="2">
+                                        <MudItem xs="4">
+                                            <MudTextField Value="detector.Name" Label="Name"
+                                                          ValueChanged="@((string v) => OnDetectorNameChanged(detector, v))"
+                                                          Variant="Variant.Outlined" />
+                                        </MudItem>
+                                        <MudItem xs="4">
+                                            <MudSelect T="DetectorBackendType" @bind-Value="detector.Backend"
+                                                       Label="Backend" Variant="Variant.Outlined" Dense="true">
+                                                @foreach (var bt in Enum.GetValues<DetectorBackendType>())
+                                                {
+                                                    <MudSelectItem Value="bt">@bt</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        </MudItem>
+                                        <MudItem xs="4">
+                                            <MudSelect T="GameEventType" @bind-Value="detector.EventType"
+                                                       Label="Event Type" Variant="Variant.Outlined" Dense="true">
+                                                @foreach (var et in Enum.GetValues<GameEventType>())
+                                                {
+                                                    <MudSelectItem Value="et">@et</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        </MudItem>
+
+                                        @* Region *@
+                                        <MudItem xs="12">
+                                            <MudText Typo="Typo.subtitle2" Class="mb-1">
+                                                Region (normalized 0.0 – 1.0)
+                                            </MudText>
+                                        </MudItem>
+                                        <MudItem xs="3">
+                                            <MudNumericField T="float" Value="detector.Region.X" Label="X"
+                                                             ValueChanged="@(v => OnRegionFieldChanged(detector, r => r.X = v))"
+                                                             Variant="Variant.Outlined"
+                                                             Min="0f" Max="1f" Step="0.01f" Format="F2" />
+                                        </MudItem>
+                                        <MudItem xs="3">
+                                            <MudNumericField T="float" Value="detector.Region.Y" Label="Y"
+                                                             ValueChanged="@(v => OnRegionFieldChanged(detector, r => r.Y = v))"
+                                                             Variant="Variant.Outlined"
+                                                             Min="0f" Max="1f" Step="0.01f" Format="F2" />
+                                        </MudItem>
+                                        <MudItem xs="3">
+                                            <MudNumericField T="float" Value="detector.Region.Width" Label="Width"
+                                                             ValueChanged="@(v => OnRegionFieldChanged(detector, r => r.Width = v))"
+                                                             Variant="Variant.Outlined"
+                                                             Min="0f" Max="1f" Step="0.01f" Format="F2" />
+                                        </MudItem>
+                                        <MudItem xs="3">
+                                            <MudNumericField T="float" Value="detector.Region.Height" Label="Height"
+                                                             ValueChanged="@(v => OnRegionFieldChanged(detector, r => r.Height = v))"
+                                                             Variant="Variant.Outlined"
+                                                             Min="0f" Max="1f" Step="0.01f" Format="F2" />
+                                        </MudItem>
+
+                                        <MudItem xs="12">
+                                            <MudSwitch T="bool" @bind-Value="detector.InvertMatch"
+                                                       Label="Invert Match (trigger when NOT detected)" Color="Color.Warning" />
+                                        </MudItem>
+
+                                        @* Backend-specific settings *@
+                                        <MudItem xs="12">
+                                            <MudText Typo="Typo.subtitle2" Class="mb-1">Backend Settings</MudText>
+                                            @switch (detector.Backend)
+                                            {
+                                                case DetectorBackendType.OpenCvTemplate:
+                                                case DetectorBackendType.OpenCvSift:
+                                                    <MudGrid Spacing="2">
+                                                        <MudItem xs="8">
+                                                            <MudTextField Value="@(GetSetting(detector, KeyTemplatePath))"
+                                                                          ValueChanged="@((string v) => SetSetting(detector, KeyTemplatePath, v))"
+                                                                          Label="Template Image Path"
+                                                                          Variant="Variant.Outlined"
+                                                                          HelperText="Relative to profile directory or absolute path" />
+                                                        </MudItem>
+                                                        <MudItem xs="4">
+                                                            <MudNumericField T="float"
+                                                                             Value="@(GetSettingFloat(detector, KeyThreshold, 0.8f))"
+                                                                             ValueChanged="@((float v) => SetSettingFloat(detector, KeyThreshold, v))"
+                                                                             Label="Threshold"
+                                                                             Variant="Variant.Outlined"
+                                                                             Min="0f" Max="1f" Step="0.05f" Format="F2" />
+                                                        </MudItem>
+                                                        @if (detector.Backend == DetectorBackendType.OpenCvSift)
+                                                        {
+                                                            <MudItem xs="6">
+                                                                <MudNumericField T="float"
+                                                                                 Value="@(GetSettingFloat(detector, KeyRatioThreshold, 0.5f))"
+                                                                                 ValueChanged="@((float v) => SetSettingFloat(detector, KeyRatioThreshold, v))"
+                                                                                 Label="Lowe's Ratio Threshold"
+                                                                                 Variant="Variant.Outlined"
+                                                                                 Min="0.1f" Max="0.9f" Step="0.05f" Format="F2" />
+                                                            </MudItem>
+                                                            <MudItem xs="6">
+                                                                <MudNumericField T="int"
+                                                                                 Value="@(GetSettingInt(detector, KeyMinGoodMatches, 8))"
+                                                                                 ValueChanged="@((int v) => SetSettingInt(detector, KeyMinGoodMatches, v))"
+                                                                                 Label="Min Good Matches"
+                                                                                 Variant="Variant.Outlined"
+                                                                                 Min="3" Max="50" />
+                                                            </MudItem>
+                                                        }
+                                                    </MudGrid>
+                                                    break;
+                                                case DetectorBackendType.Ocr:
+                                                    <MudTextField Value="@(GetSetting(detector, KeyPattern))"
+                                                                  ValueChanged="@((string v) => SetSetting(detector, KeyPattern, v))"
+                                                                  Label="Regex Pattern"
+                                                                  Variant="Variant.Outlined"
+                                                                  HelperText="e.g. (?i)you died|killed in action" />
+                                                    break;
+                                                case DetectorBackendType.Onnx:
+                                                    <MudGrid Spacing="2">
+                                                        <MudItem xs="6">
+                                                            <MudTextField Value="@(GetSetting(detector, KeyModelPath))"
+                                                                          ValueChanged="@((string v) => SetSetting(detector, KeyModelPath, v))"
+                                                                          Label="Model Path (.onnx)"
+                                                                          Variant="Variant.Outlined" />
+                                                        </MudItem>
+                                                        <MudItem xs="3">
+                                                            <MudTextField Value="@(GetSetting(detector, KeyLabel))"
+                                                                          ValueChanged="@((string v) => SetSetting(detector, KeyLabel, v))"
+                                                                          Label="Target Label"
+                                                                          Variant="Variant.Outlined" />
+                                                        </MudItem>
+                                                        <MudItem xs="3">
+                                                            <MudNumericField T="float"
+                                                                             Value="@(GetSettingFloat(detector, KeyThreshold, 0.9f))"
+                                                                             ValueChanged="@((float v) => SetSettingFloat(detector, KeyThreshold, v))"
+                                                                             Label="Threshold"
+                                                                             Variant="Variant.Outlined"
+                                                                             Min="0f" Max="1f" Step="0.05f" Format="F2" />
+                                                        </MudItem>
+                                                    </MudGrid>
+                                                    break;
+                                            }
+                                        </MudItem>
+                                    </MudGrid>
+                                </ChildContent>
+                            </MudExpansionPanel>
+                        }
+                    </MudExpansionPanels>
+                }
+            </MudCardContent>
+        </MudCard>
+
+        @* Actions *@
+        <MudCard>
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudText Typo="Typo.h6">Actions</MudText>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                   OnClick="AddAction" StartIcon="@Icons.Material.Filled.Add">
+                            Add Action
+                        </MudButton>
+                    </MudStack>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                @if (_profile.Actions.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">
+                        No actions configured. Add one to map events to shock controls.
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudSimpleTable Dense="true" Hover="true" Bordered="true">
+                        <thead>
+                            <tr>
+                                <th>Event</th>
+                                <th>Control Type</th>
+                                <th>Intensity</th>
+                                <th>Duration (ms)</th>
+                                <th>Cooldown (ms)</th>
+                                <th style="width: 40px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var i = 0; i < _profile.Actions.Count; i++)
+                            {
+                                var action = _profile.Actions[i];
+                                var actionIdx = i;
+                                <tr>
+                                    <td>
+                                        <MudSelect T="GameEventType" @bind-Value="action.EventType"
+                                                   Variant="Variant.Text" Dense="true" DisableUnderLine="true">
+                                            @foreach (var et in Enum.GetValues<GameEventType>())
+                                            {
+                                                <MudSelectItem Value="et">@et</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    </td>
+                                    <td>
+                                        <MudSelect T="ControlType" @bind-Value="action.ControlType"
+                                                   Variant="Variant.Text" Dense="true" DisableUnderLine="true">
+                                            @foreach (var ct in Enum.GetValues<ControlType>())
+                                            {
+                                                <MudSelectItem Value="ct">@ct</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    </td>
+                                    <td>
+                                        <MudNumericField T="byte" @bind-Value="action.Intensity"
+                                                         Variant="Variant.Text" Dense="true" HideSpinButtons="true"
+                                                         Min="(byte)1" Max="(byte)100" />
+                                    </td>
+                                    <td>
+                                        <MudNumericField T="ushort" @bind-Value="action.Duration"
+                                                         Variant="Variant.Text" Dense="true" HideSpinButtons="true"
+                                                         Min="(ushort)300" Max="(ushort)30000" />
+                                    </td>
+                                    <td>
+                                        <MudNumericField T="int" @bind-Value="action.CooldownMs"
+                                                         Variant="Variant.Text" Dense="true" HideSpinButtons="true"
+                                                         Min="100" Max="60000" />
+                                    </td>
+                                    <td>
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                                       Size="Size.Small" OnClick="() => RemoveAction(actionIdx)" />
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </MudCardContent>
+        </MudCard>
+    }
+
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <MudAlert Severity="@_statusSeverity" ShowCloseIcon="true" CloseIconClicked="() => _statusMessage = null">
+            @_statusMessage
+        </MudAlert>
+    }
+</MudStack>
+
+@code {
+    [ModuleInject] private GameProfileManager ProfileManager { get; set; } = null!;
+    [ModuleInject] private PreviewService PreviewService { get; set; } = null!;
+    [ModuleInject] private ScreenCaptureService ScreenCapture { get; set; } = null!;
+    [ModuleInject] private IModuleConfig<SentryConfig> ModuleConfig { get; set; } = null!;
+
+    private List<string> _profiles = [];
+    private string? _selectedProfile;
+    private EditableGameProfile? _profile;
+    private string? _previewDataUri;
+    private int _selectedDetectorIndex = -1;
+    private string? _statusMessage;
+    private Severity _statusSeverity = Severity.Info;
+    private RegionPreview? _regionPreview;
+    private List<RegionPreview.RegionItem> _regionItems = [];
+
+    private static readonly string[] _regionColors = ["#00c8ff", "#00ff80", "#8000ff", "#ff8000", "#ff0080"];
+
+    // Setting key constants (avoids double-quote issues in Razor attributes)
+    private const string KeyTemplatePath = "templatePath";
+    private const string KeyThreshold = "threshold";
+    private const string KeyRatioThreshold = "ratioThreshold";
+    private const string KeyMinGoodMatches = "minGoodMatches";
+    private const string KeyPattern = "pattern";
+    private const string KeyModelPath = "modelPath";
+    private const string KeyLabel = "label";
+
+    protected override void OnInitialized()
+    {
+        RefreshProfiles();
+    }
+
+    private void RefreshProfiles()
+    {
+        _profiles = ProfileManager.ListProfiles().ToList();
+    }
+
+    private void OnProfileSelected(string profileName)
+    {
+        _selectedProfile = profileName;
+        if (string.IsNullOrEmpty(profileName)) { _profile = null; _regionItems = []; return; }
+
+        var loaded = ProfileManager.Load(profileName);
+        _profile = loaded is not null ? EditableGameProfile.From(loaded) : null;
+        SyncRegionItems();
+    }
+
+    private void NewProfile()
+    {
+        _selectedProfile = null;
+        _profile = new EditableGameProfile { Name = "New Profile" };
+        _regionItems = [];
+    }
+
+    private void DeleteProfile()
+    {
+        if (string.IsNullOrEmpty(_selectedProfile)) return;
+        ProfileManager.Delete(_selectedProfile);
+        _profile = null;
+        _selectedProfile = null;
+        RefreshProfiles();
+        SetStatus("Profile deleted.", Severity.Info);
+    }
+
+    private void SaveProfile()
+    {
+        if (_profile is null) return;
+
+        var saveName = _selectedProfile ?? _profile.Name.ToLowerInvariant().Replace(' ', '-');
+        ProfileManager.Save(saveName, _profile.ToGameProfile());
+        _selectedProfile = saveName;
+        RefreshProfiles();
+        SetStatus($"Saved '{saveName}'", Severity.Success);
+    }
+
+    private void CapturePreview()
+    {
+        if (ScreenCapture.ScreenWidth == 0)
+            ScreenCapture.Initialize(ModuleConfig.Config.ScreenWidth, ModuleConfig.Config.ScreenHeight);
+        PreviewService.PreviewScale = 0.5f;
+        _previewDataUri = PreviewService.CapturePreviewFrame();
+        SyncRegionItems();
+    }
+
+    private async Task AddDetector()
+    {
+        _profile?.Detectors.Add(new EditableDetectorConfig
+        {
+            Name = $"Detector {(_profile!.Detectors.Count + 1)}",
+            Backend = DetectorBackendType.OpenCvTemplate,
+            Region = new NormalizedRegion { X = 0.1f, Y = 0.1f, Width = 0.2f, Height = 0.1f },
+            EventType = GameEventType.Damage,
+            _expanded = true
+        });
+        SyncRegionItems();
+        if (_regionPreview is not null) await _regionPreview.RefreshRegions();
+    }
+
+    private async Task RemoveDetector(int index)
+    {
+        if (_profile is null || index < 0 || index >= _profile.Detectors.Count) return;
+        _profile.Detectors.RemoveAt(index);
+        SyncRegionItems();
+        if (_regionPreview is not null) await _regionPreview.RefreshRegions();
+    }
+
+    private void SyncRegionItems()
+    {
+        if (_profile is null) { _regionItems = []; return; }
+        _regionItems = _profile.Detectors.Select((d, i) => new RegionPreview.RegionItem
+        {
+            X = d.Region.X,
+            Y = d.Region.Y,
+            Width = d.Region.Width,
+            Height = d.Region.Height,
+            Label = d.Name,
+            Color = _regionColors[i % _regionColors.Length]
+        }).ToList();
+    }
+
+    private async Task OnRegionDragged(RegionPreview.RegionChangedArgs args)
+    {
+        if (_profile is null || args.Index < 0 || args.Index >= _profile.Detectors.Count) return;
+        var detector = _profile.Detectors[args.Index];
+        detector.Region.X = args.X;
+        detector.Region.Y = args.Y;
+        detector.Region.Width = args.Width;
+        detector.Region.Height = args.Height;
+        // Keep _regionItems in sync too
+        if (args.Index < _regionItems.Count)
+        {
+            _regionItems[args.Index].X = args.X;
+            _regionItems[args.Index].Y = args.Y;
+            _regionItems[args.Index].Width = args.Width;
+            _regionItems[args.Index].Height = args.Height;
+        }
+        await Task.CompletedTask;
+    }
+
+    private void OnRegionClicked(int index)
+    {
+        _selectedDetectorIndex = index;
+    }
+
+    private async Task OnRegionFieldChanged(EditableDetectorConfig detector, Action<NormalizedRegion> apply)
+    {
+        apply(detector.Region);
+        SyncRegionItems();
+        if (_regionPreview is not null) await _regionPreview.RefreshRegions();
+    }
+
+    private async Task OnDetectorNameChanged(EditableDetectorConfig detector, string name)
+    {
+        detector.Name = name;
+        SyncRegionItems();
+        if (_regionPreview is not null) await _regionPreview.RefreshRegions();
+    }
+
+    private void AddAction()
+    {
+        _profile?.Actions.Add(new ActionMapping
+        {
+            EventType = GameEventType.Damage,
+            ControlType = ControlType.Shock,
+            Intensity = 30,
+            Duration = 500,
+            CooldownMs = 2000
+        });
+    }
+
+    private void RemoveAction(int index)
+    {
+        if (_profile is null || index < 0 || index >= _profile.Actions.Count) return;
+        _profile.Actions.RemoveAt(index);
+    }
+
+    // Settings helpers for the dynamic Dictionary<string, JsonElement>
+    private static string GetSetting(EditableDetectorConfig d, string key) =>
+        d.RawSettings.TryGetValue(key, out var v) ? v : "";
+
+    private static void SetSetting(EditableDetectorConfig d, string key, string value) =>
+        d.RawSettings[key] = value;
+
+    private static float GetSettingFloat(EditableDetectorConfig d, string key, float fallback) =>
+        d.RawSettings.TryGetValue(key, out var v) && float.TryParse(v, out var f) ? f : fallback;
+
+    private static void SetSettingFloat(EditableDetectorConfig d, string key, float value) =>
+        d.RawSettings[key] = value.ToString("F2");
+
+    private static int GetSettingInt(EditableDetectorConfig d, string key, int fallback) =>
+        d.RawSettings.TryGetValue(key, out var v) && int.TryParse(v, out var i) ? i : fallback;
+
+    private static void SetSettingInt(EditableDetectorConfig d, string key, int value) =>
+        d.RawSettings[key] = value.ToString();
+
+    private void SetStatus(string msg, Severity sev) { _statusMessage = msg; _statusSeverity = sev; }
+
+    private static Color GetBackendColor(DetectorBackendType b) => b switch
+    {
+        DetectorBackendType.OpenCvTemplate => Color.Primary,
+        DetectorBackendType.OpenCvSift => Color.Secondary,
+        DetectorBackendType.Ocr => Color.Tertiary,
+        DetectorBackendType.Onnx => Color.Warning,
+        _ => Color.Default
+    };
+
+    public void Dispose() { }
+}

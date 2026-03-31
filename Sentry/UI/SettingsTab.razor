@@ -1,5 +1,108 @@
-﻿<h3>SettingsTab</h3>
+<MudStack Spacing="3" Class="pa-4">
+
+    <MudText Typo="Typo.h5">Settings</MudText>
+
+    <MudCard>
+        <MudCardContent>
+            <MudText Typo="Typo.h6" Class="mb-3">Screen Capture</MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="4">
+                    <MudNumericField T="int" @bind-Value="_screenWidth" Label="Screen Width"
+                                     Variant="Variant.Outlined" Min="640" Max="7680" />
+                </MudItem>
+                <MudItem xs="4">
+                    <MudNumericField T="int" @bind-Value="_screenHeight" Label="Screen Height"
+                                     Variant="Variant.Outlined" Min="480" Max="4320" />
+                </MudItem>
+                <MudItem xs="4">
+                    <MudNumericField T="int" @bind-Value="_targetCaptureFps" Label="Target Capture FPS"
+                                     Variant="Variant.Outlined" Min="1" Max="240" />
+                </MudItem>
+            </MudGrid>
+            <MudText Typo="Typo.caption" Color="Color.Tertiary" Class="mt-2">
+                Set screen width/height to your monitor's resolution. Target FPS limits the capture loop rate.
+            </MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveSettings" Class="mt-3">
+                Save
+            </MudButton>
+        </MudCardContent>
+    </MudCard>
+
+    <MudCard>
+        <MudCardContent>
+            <MudText Typo="Typo.h6" Class="mb-3">Data Directory</MudText>
+            <MudText Typo="Typo.body2">
+                Profiles and configuration are stored in:<br />
+                <code>@_dataDir</code>
+            </MudText>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" Class="mt-2"
+                       OnClick="OpenDataDir" StartIcon="@Icons.Material.Filled.FolderOpen">
+                Open in Explorer
+            </MudButton>
+        </MudCardContent>
+    </MudCard>
+
+    <MudCard>
+        <MudCardContent>
+            <MudText Typo="Typo.h6" Class="mb-3">About</MudText>
+            <MudText Typo="Typo.body2">
+                OpenShock Sentry — screen-based game event detection module.
+            </MudText>
+            <MudText Typo="Typo.body2" Color="Color.Tertiary">
+                Supports OpenCV template matching, SIFT feature detection, OCR, and ONNX inference backends.
+            </MudText>
+        </MudCardContent>
+    </MudCard>
+
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <MudAlert Severity="@_statusSeverity" ShowCloseIcon="true" CloseIconClicked="() => _statusMessage = null">
+            @_statusMessage
+        </MudAlert>
+    }
+</MudStack>
 
 @code {
-    
+    [ModuleInject] private IModuleConfig<SentryConfig> ModuleConfig { get; set; } = null!;
+
+    private int _screenWidth;
+    private int _screenHeight;
+    private int _targetCaptureFps;
+    private string _dataDir = "";
+    private string? _statusMessage;
+    private Severity _statusSeverity;
+
+    protected override void OnInitialized()
+    {
+        _screenWidth = ModuleConfig.Config.ScreenWidth;
+        _screenHeight = ModuleConfig.Config.ScreenHeight;
+        _targetCaptureFps = ModuleConfig.Config.TargetCaptureFps;
+
+        _dataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "OpenShock", "Desktop", "moduleData", "openshock.sentry");
+    }
+
+    private void SaveSettings()
+    {
+        ModuleConfig.Config.ScreenWidth = _screenWidth;
+        ModuleConfig.Config.ScreenHeight = _screenHeight;
+        ModuleConfig.Config.TargetCaptureFps = _targetCaptureFps;
+        ModuleConfig.SaveDeferred();
+        _statusMessage = "Settings saved.";
+        _statusSeverity = Severity.Success;
+    }
+
+    private void OpenDataDir()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = _dataDir,
+                UseShellExecute = true
+            });
+        }
+        catch { }
+    }
 }

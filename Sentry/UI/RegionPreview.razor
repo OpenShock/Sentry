@@ -1,0 +1,147 @@
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+
+<div @ref="_containerRef" style="position: relative; overflow: hidden; background: #111; @Style">
+    @if (ImageDataUri is not null)
+    {
+        <img @ref="_imgRef" src="@ImageDataUri" alt="Preview"
+             style="width: 100%; display: block; user-select: none; pointer-events: none;" />
+        <canvas id="@_canvasId" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" />
+    }
+    else
+    {
+        <MudStack AlignItems="AlignItems.Center" Justify="Justify.Center" Style="min-height: 200px;">
+            <MudText Typo="Typo.body2" Color="Color.Tertiary">
+                @PlaceholderText
+            </MudText>
+        </MudStack>
+    }
+</div>
+
+@code {
+    [Parameter] public string? ImageDataUri { get; set; }
+    [Parameter] public string Style { get; set; } = "";
+    [Parameter] public string PlaceholderText { get; set; } = "No preview available. Capture a frame first.";
+
+    /// <summary>Regions to display/edit. The component will modify these in place on drag.</summary>
+    [Parameter] public List<RegionItem> Regions { get; set; } = [];
+
+    /// <summary>Fired when a region is moved or resized by the user.</summary>
+    [Parameter] public EventCallback<RegionChangedArgs> OnRegionChanged { get; set; }
+
+    /// <summary>Fired when a region is selected (clicked).</summary>
+    [Parameter] public EventCallback<int> OnRegionSelected { get; set; }
+
+    [Inject] private IJSRuntime JS { get; set; } = null!;
+
+    private ElementReference _containerRef;
+    private ElementReference _imgRef;
+    private readonly string _canvasId = $"region-canvas-{Guid.NewGuid():N}";
+    private IJSObjectReference? _jsModule;
+    private DotNetObjectReference<RegionPreview>? _dotnetRef;
+    private bool _initialized;
+    private string? _lastImageUri;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "/OpenShock/Sentry/wwwroot/js/regionEditor.js");
+            _dotnetRef = DotNetObjectReference.Create(this);
+        }
+
+        // Initialize or re-sync when image changes
+        if (ImageDataUri is not null && _jsModule is not null && _dotnetRef is not null)
+        {
+            if (!_initialized)
+            {
+                // Small delay for img to render
+                await Task.Delay(50);
+                await _jsModule.InvokeVoidAsync("initialize", _canvasId, _dotnetRef,
+                    ToJsRegions(), ToJsColors());
+                await _jsModule.InvokeVoidAsync("syncCanvasSize", _canvasId);
+                _initialized = true;
+                _lastImageUri = ImageDataUri;
+            }
+            else if (ImageDataUri != _lastImageUri)
+            {
+                await _jsModule.InvokeVoidAsync("syncCanvasSize", _canvasId);
+                await _jsModule.InvokeVoidAsync("updateRegions", _canvasId,
+                    ToJsRegions(), ToJsColors());
+                _lastImageUri = ImageDataUri;
+            }
+        }
+    }
+
+    public async Task RefreshRegions()
+    {
+        if (_jsModule is not null && _initialized)
+        {
+            await _jsModule.InvokeVoidAsync("updateRegions", _canvasId,
+                ToJsRegions(), ToJsColors());
+        }
+    }
+
+    [JSInvokable("OnRegionChanged")]
+    public async Task HandleRegionChanged(int index, float x, float y, float width, float height)
+    {
+        if (index < 0 || index >= Regions.Count) return;
+        var region = Regions[index];
+        region.X = x;
+        region.Y = y;
+        region.Width = width;
+        region.Height = height;
+
+        await OnRegionChanged.InvokeAsync(new RegionChangedArgs
+        {
+            Index = index,
+            X = x, Y = y, Width = width, Height = height
+        });
+        StateHasChanged();
+    }
+
+    [JSInvokable("OnRegionSelected")]
+    public async Task HandleRegionSelected(int index)
+    {
+        await OnRegionSelected.InvokeAsync(index);
+    }
+
+    private object[] ToJsRegions() => Regions.Select(r => new
+    {
+        x = r.X, y = r.Y, width = r.Width, height = r.Height, label = r.Label
+    }).ToArray<object>();
+
+    private string[] ToJsColors() => Regions.Select(r => r.Color).ToArray();
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            await _jsModule.InvokeVoidAsync("dispose", _canvasId);
+            await _jsModule.DisposeAsync();
+        }
+        _dotnetRef?.Dispose();
+    }
+}
+
+@code {
+    public class RegionItem
+    {
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Width { get; set; }
+        public float Height { get; set; }
+        public string Label { get; set; } = "";
+        public string Color { get; set; } = "#00c8ff";
+    }
+
+    public class RegionChangedArgs
+    {
+        public int Index { get; set; }
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Width { get; set; }
+        public float Height { get; set; }
+    }
+}

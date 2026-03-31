@@ -1,0 +1,397 @@
+@implements IDisposable
+
+<MudStack Spacing="3" Class="pa-4">
+
+    @* Header with status *@
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+        <MudText Typo="Typo.h5">Dashboard</MudText>
+        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+            @if (DetectionService.IsRunning)
+            {
+                <MudChip T="string" Color="Color.Success" Size="Size.Small" Icon="@Icons.Material.Filled.FiberManualRecord">
+                    Running
+                </MudChip>
+                <MudChip T="string" Color="Color.Info" Size="Size.Small" Style="font-family: monospace;">
+                    Capture: @ScreenCapture.CaptureFps.ToString("F1").PadLeft(5) FPS / @ScreenCapture.CaptureMs.ToString("F1").PadLeft(6) ms
+                </MudChip>
+                <MudChip T="string" Color="Color.Secondary" Size="Size.Small" Style="font-family: monospace;">
+                    Detection: @DetectionService.DetectionFps.ToString("F1").PadLeft(5) FPS / @DetectionService.DetectionMs.ToString("F1").PadLeft(6) ms
+                </MudChip>
+            }
+            else
+            {
+                <MudChip T="string" Color="Color.Default" Size="Size.Small">Stopped</MudChip>
+            }
+            @if (DetectionService.ActiveProfileName is not null)
+            {
+                <MudChip T="string" Color="Color.Info" Size="Size.Small" Icon="@Icons.Material.Filled.SportsEsports">
+                    @DetectionService.ActiveProfileName
+                </MudChip>
+            }
+        </MudStack>
+    </MudStack>
+
+    @* Controls *@
+    <MudCard>
+        <MudCardContent>
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                <MudSelect T="string" Label="Profile" @bind-Value="_selectedProfile"
+                           Variant="Variant.Outlined" Dense="true" Style="max-width: 250px;">
+                    @foreach (var p in _profiles)
+                    {
+                        <MudSelectItem Value="@p">@p</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                           OnClick="LoadProfile" Disabled="@(string.IsNullOrEmpty(_selectedProfile))">
+                    Load
+                </MudButton>
+                <MudDivider Vertical="true" FlexItem="true" />
+                <MudNumericField T="int" @bind-Value="_screenWidth" Label="W" Variant="Variant.Outlined"
+                                 Dense="true" Min="640" Max="7680" Style="max-width: 100px;" />
+                <MudText Typo="Typo.body1">x</MudText>
+                <MudNumericField T="int" @bind-Value="_screenHeight" Label="H" Variant="Variant.Outlined"
+                                 Dense="true" Min="480" Max="4320" Style="max-width: 100px;" />
+                <MudDivider Vertical="true" FlexItem="true" />
+                @if (!DetectionService.IsRunning)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
+                               OnClick="StartDetection"
+                               Disabled="@(DetectionService.ActiveProfile is null)"
+                               StartIcon="@Icons.Material.Filled.PlayArrow">
+                        Start
+                    </MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Error" Size="Size.Small"
+                               OnClick="StopDetection"
+                               StartIcon="@Icons.Material.Filled.Stop">
+                        Stop
+                    </MudButton>
+                }
+            </MudStack>
+        </MudCardContent>
+    </MudCard>
+
+    @* Live Preview *@
+    <MudCard>
+        <MudCardHeader>
+            <CardHeaderContent>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.h6">Live Preview</MudText>
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                        <MudText Typo="Typo.caption">Scale</MudText>
+                        <MudSlider T="float" Value="_previewScale" Min="0.15f" Max="1" Step="0.05f"
+                                   Style="width: 120px;" ValueChanged="OnPreviewScaleChanged" />
+                        <MudText Typo="Typo.caption">@(_previewScale.ToString("P0"))</MudText>
+                        <MudIconButton Icon="@(_previewLive ? Icons.Material.Filled.Pause : Icons.Material.Filled.PlayArrow)"
+                                       Color="@(_previewLive ? Color.Warning : Color.Success)"
+                                       Size="Size.Small" OnClick="TogglePreview"
+                                       Title="@(_previewLive ? "Pause preview" : "Resume preview")" />
+                        <MudIconButton Icon="@Icons.Material.Filled.CameraAlt" Size="Size.Small"
+                                       OnClick="CaptureOneFrame" Title="Capture single frame"
+                                       Disabled="@_previewLive" />
+                    </MudStack>
+                </MudStack>
+            </CardHeaderContent>
+        </MudCardHeader>
+        <MudCardContent Style="padding: 0; overflow: hidden; background: #111;">
+            @if (_previewDataUri is not null)
+            {
+                <img src="@_previewDataUri" alt="Screen Preview"
+                     style="width: 100%; display: block; image-rendering: auto;" />
+            }
+            else
+            {
+                <MudStack AlignItems="AlignItems.Center" Justify="Justify.Center" Style="min-height: 200px;">
+                    <MudText Typo="Typo.body2" Color="Color.Tertiary">
+                        No preview — set screen resolution and click capture or start preview.
+                    </MudText>
+                </MudStack>
+            }
+        </MudCardContent>
+    </MudCard>
+
+    @* Detection Regions *@
+    @if (DetectionService.ActiveProfile is not null)
+    {
+        <MudCard>
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Active Detectors</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudSimpleTable Dense="true" Hover="true" Bordered="true">
+                    <thead>
+                        <tr>
+                            <th style="width: 20px;"></th>
+                            <th>Name</th>
+                            <th>Backend</th>
+                            <th>Event</th>
+                            <th>Region</th>
+                            <th>Inverted</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{ var idx = 0; }
+                        @foreach (var d in DetectionService.ActiveProfile.Detectors)
+                        {
+                            var color = _regionColors[idx % _regionColors.Length];
+                            <tr>
+                                <td><div style="width:14px; height:14px; border-radius:3px; background:@color;"></div></td>
+                                <td>@d.Name</td>
+                                <td><MudChip T="string" Size="Size.Small" Color="@GetBackendColor(d.Backend)">@d.Backend</MudChip></td>
+                                <td>@d.EventType</td>
+                                <td><code>@FormatRegion(d.Region)</code></td>
+                                <td>@(d.InvertMatch ? "Yes" : "")</td>
+                            </tr>
+                            idx++;
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </MudCardContent>
+        </MudCard>
+    }
+
+    @* Detection Log *@
+    <MudCard>
+        <MudCardHeader>
+            <CardHeaderContent>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.h6">Detection Log</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Tertiary">Last @_logEntries.Count events</MudText>
+                </MudStack>
+            </CardHeaderContent>
+        </MudCardHeader>
+        <MudCardContent Style="max-height: 300px; overflow-y: auto; padding: 0;">
+            @if (_logEntries.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Tertiary" Class="pa-4">No events yet.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Hover="true" Style="font-size: 0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Detector</th>
+                            <th>Event</th>
+                            <th>Confidence</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in _logEntries)
+                        {
+                            <tr>
+                                <td>@entry.Timestamp.ToString("HH:mm:ss.fff")</td>
+                                <td>@entry.DetectorName</td>
+                                <td>
+                                    <MudChip T="string" Size="Size.Small" Color="@GetEventColor(entry.EventType)">
+                                        @entry.EventType
+                                    </MudChip>
+                                </td>
+                                <td>@entry.Confidence.ToString("P1")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudCardContent>
+    </MudCard>
+
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <MudAlert Severity="@_statusSeverity" ShowCloseIcon="true" CloseIconClicked="() => _statusMessage = null">
+            @_statusMessage
+        </MudAlert>
+    }
+</MudStack>
+
+@code {
+    [ModuleInject] private DetectionService DetectionService { get; set; } = null!;
+    [ModuleInject] private PreviewService PreviewService { get; set; } = null!;
+    [ModuleInject] private GameProfileManager ProfileManager { get; set; } = null!;
+    [ModuleInject] private IModuleConfig<SentryConfig> ModuleConfig { get; set; } = null!;
+    [ModuleInject] private ScreenCaptureService ScreenCapture { get; set; } = null!;
+
+    private List<string> _profiles = [];
+    private string? _selectedProfile;
+    private int _screenWidth = 2560;
+    private int _screenHeight = 1440;
+    private string? _previewDataUri;
+    private bool _previewLive;
+    private float _previewScale = 0.35f;
+    private readonly ManualResetEventSlim _previewSignal = new(false);
+    private Thread? _previewThread;
+    private List<DetectionLogEntry> _logEntries = [];
+    private string? _statusMessage;
+    private Severity _statusSeverity = Severity.Info;
+
+    private static readonly string[] _regionColors = ["#00c8ff", "#00ff80", "#8000ff", "#ff8000", "#ff0080"];
+
+    protected override void OnInitialized()
+    {
+        _screenWidth = ModuleConfig.Config.ScreenWidth;
+        _screenHeight = ModuleConfig.Config.ScreenHeight;
+        _profiles = ProfileManager.ListProfiles().ToList();
+
+        if (!string.IsNullOrEmpty(ModuleConfig.Config.ActiveProfileName)
+            && _profiles.Contains(ModuleConfig.Config.ActiveProfileName))
+            _selectedProfile = ModuleConfig.Config.ActiveProfileName;
+        else if (_profiles.Count > 0)
+            _selectedProfile = _profiles[0];
+
+        DetectionService.OnStateChanged += OnDetectionStateChanged;
+    }
+
+    private void LoadProfile()
+    {
+        if (string.IsNullOrEmpty(_selectedProfile)) return;
+        try
+        {
+            EnsureScreenCaptureInitialized();
+            DetectionService.LoadProfile(_selectedProfile);
+            ModuleConfig.Config.ActiveProfileName = _selectedProfile;
+            ModuleConfig.SaveDeferred();
+            SetStatus($"Loaded '{_selectedProfile}'", Severity.Success);
+        }
+        catch (Exception ex) { SetStatus($"Load failed: {ex.Message}", Severity.Error); }
+    }
+
+    private async Task StartDetection()
+    {
+        ModuleConfig.Config.ScreenWidth = _screenWidth;
+        ModuleConfig.Config.ScreenHeight = _screenHeight;
+        ModuleConfig.SaveDeferred();
+
+        try
+        {
+            ScreenCapture.TargetFps = ModuleConfig.Config.TargetCaptureFps;
+            await DetectionService.StartAsync(_screenWidth, _screenHeight);
+            if (!_previewLive) TogglePreview();
+        }
+        catch (Exception ex) { SetStatus($"Start failed: {ex.Message}", Severity.Error); }
+    }
+
+    private void StopDetection()
+    {
+        DetectionService.Stop();
+    }
+
+    private void TogglePreview()
+    {
+        _previewLive = !_previewLive;
+        if (_previewLive)
+        {
+            EnsureScreenCaptureInitialized();
+            ScreenCapture.TargetFps = ModuleConfig.Config.TargetCaptureFps;
+            if (!ScreenCapture.IsRunning)
+                ScreenCapture.Start();
+            PreviewService.PreviewScale = _previewScale;
+            ScreenCapture.OnNewFrame += SignalPreviewFrame;
+            _previewThread = new Thread(PreviewLoop) { IsBackground = true, Name = "PreviewLoop" };
+            _previewThread.Start();
+        }
+        else
+        {
+            ScreenCapture.OnNewFrame -= SignalPreviewFrame;
+            _previewSignal.Set(); // Unblock so thread can exit
+            _previewThread?.Join(timeout: TimeSpan.FromSeconds(2));
+            _previewThread = null;
+        }
+    }
+
+    private void CaptureOneFrame()
+    {
+        EnsureScreenCaptureInitialized();
+        PreviewService.PreviewScale = _previewScale;
+        _previewDataUri = PreviewService.CapturePreviewFrame();
+        StateHasChanged();
+    }
+
+    private void SignalPreviewFrame() => _previewSignal.Set();
+
+    private void PreviewLoop()
+    {
+        while (_previewLive)
+        {
+            _previewSignal.Wait();
+            _previewSignal.Reset();
+
+            if (!_previewLive) break;
+
+            try
+            {
+                var dataUri = PreviewService.CapturePreviewFrame();
+                var logEntries = DetectionService.DetectionLog.Reverse().Take(50).ToList();
+
+                InvokeAsync(() =>
+                {
+                    _previewDataUri = dataUri;
+                    _logEntries = logEntries;
+                    StateHasChanged();
+                });
+            }
+            catch
+            {
+                // Skip frame on error
+            }
+        }
+    }
+
+    private void OnPreviewScaleChanged(float newScale)
+    {
+        _previewScale = newScale;
+        PreviewService.PreviewScale = _previewScale;
+    }
+
+    private void EnsureScreenCaptureInitialized()
+    {
+        if (ScreenCapture.ScreenWidth == 0)
+            ScreenCapture.Initialize(_screenWidth, _screenHeight);
+    }
+
+    private void OnDetectionStateChanged()
+    {
+        InvokeAsync(() =>
+        {
+            _logEntries = DetectionService.DetectionLog.Reverse().Take(50).ToList();
+            StateHasChanged();
+        });
+    }
+
+    private void SetStatus(string msg, Severity sev) { _statusMessage = msg; _statusSeverity = sev; }
+
+    private static string FormatRegion(NormalizedRegion r) =>
+        $"({r.X:F2}, {r.Y:F2}) {r.Width:F2}x{r.Height:F2}";
+
+    private static Color GetBackendColor(DetectorBackendType b) => b switch
+    {
+        DetectorBackendType.OpenCvTemplate => Color.Primary,
+        DetectorBackendType.OpenCvSift => Color.Secondary,
+        DetectorBackendType.Ocr => Color.Tertiary,
+        DetectorBackendType.Onnx => Color.Warning,
+        _ => Color.Default
+    };
+
+    private static Color GetEventColor(GameEventType e) => e switch
+    {
+        GameEventType.Death => Color.Error,
+        GameEventType.Damage => Color.Warning,
+        GameEventType.Kill => Color.Success,
+        GameEventType.Hit => Color.Info,
+        _ => Color.Default
+    };
+
+    public void Dispose()
+    {
+        DetectionService.OnStateChanged -= OnDetectionStateChanged;
+        ScreenCapture.OnNewFrame -= SignalPreviewFrame;
+        _previewLive = false;
+        _previewSignal.Set();
+        _previewThread?.Join(timeout: TimeSpan.FromSeconds(2));
+        _previewSignal.Dispose();
+    }
+}
