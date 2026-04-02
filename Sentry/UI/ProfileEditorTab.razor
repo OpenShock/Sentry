@@ -46,10 +46,14 @@
                         <MudTextField @bind-Value="_profile.Name" Label="Profile Name"
                                       Variant="Variant.Outlined" Dense="true" />
                     </MudItem>
-                    <MudItem xs="6">
+                    <MudItem xs="4">
                         <MudTextField @bind-Value="_profile.ProcessName" Label="Process Name (optional)"
                                       Variant="Variant.Outlined" Dense="true"
                                       HelperText="e.g. helldivers2, javaw" />
+                    </MudItem>
+                    <MudItem xs="2" Class="d-flex align-center">
+                        <MudSwitch T="bool" @bind-Value="_profile.PerRegionCapture"
+                                   Label="Per-region capture" Color="Color.Primary" />
                     </MudItem>
                 </MudGrid>
             </MudCardContent>
@@ -437,7 +441,16 @@
     private void CapturePreview()
     {
         if (ScreenCapture.ScreenWidth == 0)
-            ScreenCapture.Initialize(ModuleConfig.Config.ScreenWidth, ModuleConfig.Config.ScreenHeight);
+        {
+            var deviceName = ModuleConfig.Config.MonitorDeviceName;
+            var monitor = !string.IsNullOrEmpty(deviceName)
+                ? ScreenCaptureService.GetMonitors().FirstOrDefault(m => m.DeviceName == deviceName)
+                : null;
+            if (monitor is not null)
+                ScreenCapture.Initialize(monitor.Bounds);
+            else
+                ScreenCapture.Initialize(ModuleConfig.Config.ScreenWidth, ModuleConfig.Config.ScreenHeight);
+        }
         PreviewService.PreviewScale = 0.5f;
         _previewDataUri = PreviewService.CapturePreviewFrame();
         SyncRegionItems();

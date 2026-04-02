@@ -1,3 +1,5 @@
+@using OpenShock.Sentry.Services
+
 <MudStack Spacing="3" Class="pa-4">
 
     <MudText Typo="Typo.h5">Settings</MudText>
@@ -6,24 +8,35 @@
         <MudCardContent>
             <MudText Typo="Typo.h6" Class="mb-3">Screen Capture</MudText>
             <MudGrid Spacing="2">
-                <MudItem xs="4">
-                    <MudNumericField T="int" @bind-Value="_screenWidth" Label="Screen Width"
-                                     Variant="Variant.Outlined" Min="640" Max="7680" />
+                <MudItem xs="6">
+                    <MudSelect T="string" Label="Monitor" Value="_selectedMonitor"
+                               ValueChanged="OnMonitorChanged"
+                               Variant="Variant.Outlined">
+                        @foreach (var m in _monitors)
+                        {
+                            <MudSelectItem Value="@m.DeviceName">@m.DisplayName</MudSelectItem>
+                        }
+                    </MudSelect>
                 </MudItem>
-                <MudItem xs="4">
-                    <MudNumericField T="int" @bind-Value="_screenHeight" Label="Screen Height"
-                                     Variant="Variant.Outlined" Min="480" Max="4320" />
-                </MudItem>
-                <MudItem xs="4">
-                    <MudNumericField T="int" @bind-Value="_targetCaptureFps" Label="Target Capture FPS"
+                <MudItem xs="2">
+                    <MudNumericField T="int" @bind-Value="_targetCaptureFps" Label="Target FPS"
                                      Variant="Variant.Outlined" Min="1" Max="240" />
                 </MudItem>
+                <MudItem xs="4" Class="d-flex align-center">
+                    <MudText Typo="Typo.body2" Color="Color.Tertiary">
+                        @if (_selectedMonitorInfo is not null)
+                        {
+                            @($"{_selectedMonitorInfo.Width}x{_selectedMonitorInfo.Height} at ({_selectedMonitorInfo.X}, {_selectedMonitorInfo.Y})")
+                        }
+                    </MudText>
+                </MudItem>
             </MudGrid>
-            <MudText Typo="Typo.caption" Color="Color.Tertiary" Class="mt-2">
-                Set screen width/height to your monitor's resolution. Target FPS limits the capture loop rate.
-            </MudText>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveSettings" Class="mt-3">
                 Save
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="RefreshMonitors" Class="mt-3 ml-2"
+                       StartIcon="@Icons.Material.Filled.Refresh">
+                Refresh Monitors
             </MudButton>
         </MudCardContent>
     </MudCard>
@@ -65,8 +78,9 @@
 @code {
     [ModuleInject] private IModuleConfig<SentryConfig> ModuleConfig { get; set; } = null!;
 
-    private int _screenWidth;
-    private int _screenHeight;
+    private List<MonitorInfo> _monitors = [];
+    private string? _selectedMonitor;
+    private MonitorInfo? _selectedMonitorInfo;
     private int _targetCaptureFps;
     private string _dataDir = "";
     private string? _statusMessage;
@@ -74,19 +88,51 @@
 
     protected override void OnInitialized()
     {
-        _screenWidth = ModuleConfig.Config.ScreenWidth;
-        _screenHeight = ModuleConfig.Config.ScreenHeight;
         _targetCaptureFps = ModuleConfig.Config.TargetCaptureFps;
+        RefreshMonitors();
+
+        // Restore saved monitor or default to primary
+        if (!string.IsNullOrEmpty(ModuleConfig.Config.MonitorDeviceName)
+            && _monitors.Any(m => m.DeviceName == ModuleConfig.Config.MonitorDeviceName))
+        {
+            SelectMonitor(ModuleConfig.Config.MonitorDeviceName);
+        }
+        else
+        {
+            var primary = _monitors.FirstOrDefault(m => m.IsPrimary) ?? _monitors.FirstOrDefault();
+            if (primary is not null)
+                SelectMonitor(primary.DeviceName);
+        }
 
         _dataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "OpenShock", "Desktop", "moduleData", "openshock.sentry");
     }
 
+    private void RefreshMonitors()
+    {
+        _monitors = ScreenCaptureService.GetMonitors();
+    }
+
+    private void OnMonitorChanged(string deviceName)
+    {
+        SelectMonitor(deviceName);
+    }
+
+    private void SelectMonitor(string deviceName)
+    {
+        _selectedMonitor = deviceName;
+        _selectedMonitorInfo = _monitors.FirstOrDefault(m => m.DeviceName == deviceName);
+    }
+
     private void SaveSettings()
     {
-        ModuleConfig.Config.ScreenWidth = _screenWidth;
-        ModuleConfig.Config.ScreenHeight = _screenHeight;
+        if (_selectedMonitorInfo is not null)
+        {
+            ModuleConfig.Config.MonitorDeviceName = _selectedMonitorInfo.DeviceName;
+            ModuleConfig.Config.ScreenWidth = _selectedMonitorInfo.Width;
+            ModuleConfig.Config.ScreenHeight = _selectedMonitorInfo.Height;
+        }
         ModuleConfig.Config.TargetCaptureFps = _targetCaptureFps;
         ModuleConfig.SaveDeferred();
         _statusMessage = "Settings saved.";

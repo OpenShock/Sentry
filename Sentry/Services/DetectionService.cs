@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using OpenCvSharp;
+using OpenShock.Sentry.Config;
 using OpenShock.Sentry.Detection;
 using OpenShock.Sentry.Models;
 
@@ -27,10 +28,28 @@ public sealed class DetectionService : IDisposable
     private readonly ManualResetEventSlim _frameSignal = new(false);
     private Thread? _detectionThread;
 
+    // Per-region capture resources (used when PerRegionCapture is true)
+    private readonly List<RegionCapture?> _regionCaptures = [];
+
     // Detection performance tracking
     private readonly Stopwatch _detectionSw = new();
+    private readonly Stopwatch _stepSw = new();
     private readonly Stopwatch _detectionFpsTimer = new();
     private int _detectionFrameCount;
+
+    // Reusable per-frame buffers (avoid allocations in hot loop)
+    private readonly List<DetectionOverlay> _detectionOverlays = [];
+    private readonly List<(bool Triggered, float Confidence)> _regionResults = [];
+    private DetectorTiming[] _detectorTimingsBuffer = [];
+
+    /// <summary>
+    /// When true, captures only each detector's region independently instead of reading from the full-screen buffer.
+    /// Much lower overhead for small detection regions.
+    /// </summary>
+    public bool PerRegionCapture { get; set; } = true;
+
+    /// <summary>Target FPS for the detection loop when using per-region capture.</summary>
+    public int TargetFps { get; set; } = 30;
 
     // Observable state for UI
     public bool IsRunning => _running;
@@ -39,6 +58,10 @@ public sealed class DetectionService : IDisposable
     public float DetectionFps { get; private set; }
     public float DetectionMs { get; private set; }
     public IReadOnlyList<(IDetector Detector, DetectorConfig Config)> ActiveDetectors => _activeDetectors;
+
+    /// <summary>Per-detector timing from the last frame (only populated in per-region mode).</summary>
+    public DetectorTiming[] DetectorTimings => _detectorTimingsBuffer;
+    private int _detectorTimingsCount;
 
     /// <summary>Recent detection events for the UI log (newest first, capped at 100)</summary>
     public ConcurrentQueue<DetectionLogEntry> DetectionLog { get; } = new();
@@ -110,7 +133,7 @@ public sealed class DetectionService : IDisposable
     }
 
     [SuppressMessage("Interoperability", "CA1416:Validate platform compatibility")]
-    public Task StartAsync(int screenWidth = 2560, int screenHeight = 1440)
+    public Task StartAsync()
     {
         if (IsRunning) return Task.CompletedTask;
 
@@ -120,18 +143,31 @@ public sealed class DetectionService : IDisposable
             return Task.CompletedTask;
         }
 
-        _screenCapture.Initialize(screenWidth, screenHeight);
-        _screenCapture.Start();
         _running = true;
         _detectionFpsTimer.Restart();
         _detectionFrameCount = 0;
+        _detectorTimingsBuffer = new DetectorTiming[_activeDetectors.Count];
+        _detectorTimingsCount = _activeDetectors.Count;
 
-        _screenCapture.OnNewFrame += SignalNewFrame;
-        _detectionThread = new Thread(DetectionLoop) { IsBackground = true, Name = "DetectionLoop" };
+        if (PerRegionCapture)
+        {
+            // Allocate per-region capture resources
+            AllocateRegionCaptures();
+            _detectionThread = new Thread(DetectionLoopPerRegion) { IsBackground = true, Name = "DetectionLoop" };
+        }
+        else
+        {
+            // Full-screen mode: rely on ScreenCaptureService
+            _screenCapture.Start();
+            _screenCapture.OnNewFrame += SignalNewFrame;
+            _detectionThread = new Thread(DetectionLoopFullScreen) { IsBackground = true, Name = "DetectionLoop" };
+        }
+
         _detectionThread.Start();
 
-        _logger.LogInformation("Starting detection for profile '{ProfileName}' at {Width}x{Height}",
-            ActiveProfileName, screenWidth, screenHeight);
+        _logger.LogInformation(
+            "Starting detection for profile '{ProfileName}' ({Mode} mode, {Count} detectors)",
+            ActiveProfileName, PerRegionCapture ? "per-region" : "full-screen", _activeDetectors.Count);
 
         OnStateChanged?.Invoke();
         return Task.CompletedTask;
@@ -144,14 +180,45 @@ public sealed class DetectionService : IDisposable
         _frameSignal.Set(); // Unblock the thread so it can exit
         _detectionThread?.Join(timeout: TimeSpan.FromSeconds(2));
         _detectionThread = null;
-        _screenCapture.Stop();
+        FreeRegionCaptures();
         _logger.LogInformation("Detection stopped");
         OnStateChanged?.Invoke();
     }
 
     private void SignalNewFrame() => _frameSignal.Set();
 
-    private void DetectionLoop()
+    [SuppressMessage("Interoperability", "CA1416:Validate platform compatibility")]
+    private void AllocateRegionCaptures()
+    {
+        FreeRegionCaptures();
+        var srcX = _screenCapture.SourceX;
+        var srcY = _screenCapture.SourceY;
+        var w = _screenCapture.ScreenWidth;
+        var h = _screenCapture.ScreenHeight;
+
+        foreach (var (_, config) in _activeDetectors)
+        {
+            var pixelRect = config.Region.ToPixelRect(w, h);
+            if (pixelRect.Width <= 0 || pixelRect.Height <= 0)
+            {
+                _regionCaptures.Add(null);
+                continue;
+            }
+            _regionCaptures.Add(new RegionCapture(
+                srcX + pixelRect.X, srcY + pixelRect.Y,
+                pixelRect.Width, pixelRect.Height));
+        }
+    }
+
+    private void FreeRegionCaptures()
+    {
+        foreach (var rc in _regionCaptures)
+            rc?.Dispose();
+        _regionCaptures.Clear();
+    }
+
+    /// <summary>Full-screen mode: waits on ScreenCaptureService frames, crops regions from the full buffer.</summary>
+    private void DetectionLoopFullScreen()
     {
         while (_running)
         {
@@ -167,12 +234,12 @@ public sealed class DetectionService : IDisposable
                 var (_, grayFrame) = frame.Value;
 
                 _detectionSw.Restart();
+                _detectionOverlays.Clear();
+                _regionResults.Clear();
 
-                var detectionOverlays = new List<DetectionOverlay>();
-                var regionResults = new List<(bool Triggered, float Confidence)>();
-
-                foreach (var (detector, config) in _activeDetectors)
+                for (var i = 0; i < _activeDetectors.Count; i++)
                 {
+                    var (detector, config) = _activeDetectors[i];
                     var pixelRect = config.Region.ToPixelRect(
                         _screenCapture.ScreenWidth,
                         _screenCapture.ScreenHeight);
@@ -180,7 +247,7 @@ public sealed class DetectionService : IDisposable
                     pixelRect = ClampRect(pixelRect, grayFrame.Width, grayFrame.Height);
                     if (pixelRect.Width <= 0 || pixelRect.Height <= 0)
                     {
-                        regionResults.Add((false, 0f));
+                        _regionResults.Add((false, 0f));
                         continue;
                     }
 
@@ -188,12 +255,12 @@ public sealed class DetectionService : IDisposable
                     var result = detector.Detect(regionMat);
 
                     var triggered = config.InvertMatch ? !result.Detected : result.Detected;
-                    regionResults.Add((triggered, result.Confidence));
+                    _regionResults.Add((triggered, result.Confidence));
 
                     if (result.BoundingBox.HasValue)
                     {
                         var box = result.BoundingBox.Value;
-                        detectionOverlays.Add(new DetectionOverlay
+                        _detectionOverlays.Add(new DetectionOverlay
                         {
                             BoundingBox = new Rect(
                                 pixelRect.X + box.X,
@@ -210,26 +277,116 @@ public sealed class DetectionService : IDisposable
                     }
                 }
 
-                _previewService.SetDetectionOverlays(detectionOverlays);
-                UpdatePreviewOverlays(regionResults);
+                _previewService.SetDetectionOverlays(_detectionOverlays);
+                UpdatePreviewOverlays(_regionResults);
 
-                _detectionSw.Stop();
-                DetectionMs = (float)_detectionSw.Elapsed.TotalMilliseconds;
+                FinishDetectionFrame();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in detection");
+            }
+        }
+    }
 
-                // FPS calculation
-                _detectionFrameCount++;
-                if (_detectionFpsTimer.ElapsedMilliseconds >= 1000)
+    /// <summary>Per-region mode: captures only each detector's region directly via GDI. Own FPS limiter.</summary>
+    [SuppressMessage("Interoperability", "CA1416:Validate platform compatibility")]
+    private void DetectionLoopPerRegion()
+    {
+        while (_running)
+        {
+            var targetFrameTimeMs = TargetFps > 0 ? 1000.0 / TargetFps : 0;
+
+            try
+            {
+                _detectionSw.Restart();
+                _detectionOverlays.Clear();
+                _regionResults.Clear();
+
+                for (var i = 0; i < _activeDetectors.Count; i++)
                 {
-                    DetectionFps = _detectionFrameCount * 1000f / _detectionFpsTimer.ElapsedMilliseconds;
-                    _detectionFrameCount = 0;
-                    _detectionFpsTimer.Restart();
-                    OnStateChanged?.Invoke();
+                    var (detector, config) = _activeDetectors[i];
+                    var capture = i < _regionCaptures.Count ? _regionCaptures[i] : null;
+
+                    if (capture is null)
+                    {
+                        _regionResults.Add((false, 0f));
+                        _detectorTimingsBuffer[i] = new DetectorTiming { Name = config.Name };
+                        continue;
+                    }
+
+                    _stepSw.Restart();
+                    capture.CaptureFromScreen();
+                    var captureMs = (float)_stepSw.Elapsed.TotalMilliseconds;
+
+                    _stepSw.Restart();
+                    var result = detector.Detect(capture.GrayMat);
+                    var detectMs = (float)_stepSw.Elapsed.TotalMilliseconds;
+
+                    _detectorTimingsBuffer[i] = new DetectorTiming
+                    {
+                        Name = config.Name,
+                        CaptureMs = captureMs,
+                        DetectMs = detectMs
+                    };
+
+                    var triggered = config.InvertMatch ? !result.Detected : result.Detected;
+                    _regionResults.Add((triggered, result.Confidence));
+
+                    if (result.BoundingBox.HasValue)
+                    {
+                        var pixelRect = config.Region.ToPixelRect(
+                            _screenCapture.ScreenWidth, _screenCapture.ScreenHeight);
+                        var box = result.BoundingBox.Value;
+                        _detectionOverlays.Add(new DetectionOverlay
+                        {
+                            BoundingBox = new Rect(
+                                pixelRect.X + box.X,
+                                pixelRect.Y + box.Y,
+                                box.Width, box.Height),
+                            Triggered = triggered
+                        });
+                    }
+
+                    if (triggered)
+                    {
+                        AddLogEntry(detector.Name, config.EventType, result.Confidence, config.InvertMatch);
+                        _ = _shockTrigger.HandleDetection(config.EventType, _activeProfile!.Actions);
+                    }
+                }
+
+                _previewService.SetDetectionOverlays(_detectionOverlays);
+                UpdatePreviewOverlays(_regionResults);
+
+                FinishDetectionFrame();
+
+                // FPS limiter
+                var elapsed = _detectionSw.Elapsed.TotalMilliseconds;
+                if (targetFrameTimeMs > 0 && elapsed < targetFrameTimeMs)
+                {
+                    var sleepMs = (int)(targetFrameTimeMs - elapsed);
+                    if (sleepMs > 0) Thread.Sleep(sleepMs);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in detection");
             }
+        }
+    }
+
+    private void FinishDetectionFrame()
+    {
+        _detectionSw.Stop();
+        DetectionMs = (float)_detectionSw.Elapsed.TotalMilliseconds;
+
+        _detectionFrameCount++;
+        if (_detectionFpsTimer.ElapsedMilliseconds >= 1000)
+        {
+            DetectionFps = _detectionFrameCount * 1000f / _detectionFpsTimer.ElapsedMilliseconds;
+            _detectionFrameCount = 0;
+            _detectionFpsTimer.Restart();
+            OnStateChanged?.Invoke();
         }
     }
 
@@ -294,7 +451,6 @@ public sealed class DetectionService : IDisposable
     {
         Stop();
         UnloadProfile();
-        _screenCapture.Dispose();
     }
 }
 
@@ -305,4 +461,12 @@ public sealed class DetectionLogEntry
     public GameEventType EventType { get; init; }
     public float Confidence { get; init; }
     public bool Inverted { get; init; }
+}
+
+public struct DetectorTiming
+{
+    public string Name;
+    public float CaptureMs;
+    public float DetectMs;
+    public readonly float TotalMs => CaptureMs + DetectMs;
 }

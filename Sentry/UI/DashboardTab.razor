@@ -9,13 +9,29 @@
             @if (DetectionService.IsRunning)
             {
                 <MudChip T="string" Color="Color.Success" Size="Size.Small" Icon="@Icons.Material.Filled.FiberManualRecord">
-                    Running
+                    Running (@(DetectionService.PerRegionCapture ? "per-region" : "full-screen"))
                 </MudChip>
-                <MudChip T="string" Color="Color.Info" Size="Size.Small" Style="font-family: monospace;">
-                    Capture: @ScreenCapture.CaptureFps.ToString("F1").PadLeft(5) FPS / @ScreenCapture.CaptureMs.ToString("F1").PadLeft(6) ms
-                </MudChip>
+                @if (DetectionService.PerRegionCapture && DetectionService.DetectorTimings.Length > 0)
+                {
+                    var timingsSpan = DetectionService.DetectorTimings;
+                    var totalCapture = 0f;
+                    var totalDetect = 0f;
+                    foreach (var t in timingsSpan) { totalCapture += t.CaptureMs; totalDetect += t.DetectMs; }
+                    <MudChip T="string" Color="Color.Info" Size="Size.Small" Style="font-family: monospace;">
+                        Capture: @totalCapture.ToString("F1").PadLeft(6) ms
+                    </MudChip>
+                    <MudChip T="string" Color="Color.Warning" Size="Size.Small" Style="font-family: monospace;">
+                        Detect: @totalDetect.ToString("F1").PadLeft(6) ms
+                    </MudChip>
+                }
+                else if (!DetectionService.PerRegionCapture && ScreenCapture.IsRunning)
+                {
+                    <MudChip T="string" Color="Color.Info" Size="Size.Small" Style="font-family: monospace;">
+                        Capture: @ScreenCapture.CaptureFps.ToString("F1").PadLeft(5) FPS / @ScreenCapture.CaptureMs.ToString("F1").PadLeft(6) ms
+                    </MudChip>
+                }
                 <MudChip T="string" Color="Color.Secondary" Size="Size.Small" Style="font-family: monospace;">
-                    Detection: @DetectionService.DetectionFps.ToString("F1").PadLeft(5) FPS / @DetectionService.DetectionMs.ToString("F1").PadLeft(6) ms
+                    Loop: @DetectionService.DetectionFps.ToString("F1").PadLeft(5) FPS / @DetectionService.DetectionMs.ToString("F1").PadLeft(6) ms
                 </MudChip>
             }
             else
@@ -46,12 +62,6 @@
                            OnClick="LoadProfile" Disabled="@(string.IsNullOrEmpty(_selectedProfile))">
                     Load
                 </MudButton>
-                <MudDivider Vertical="true" FlexItem="true" />
-                <MudNumericField T="int" @bind-Value="_screenWidth" Label="W" Variant="Variant.Outlined"
-                                 Dense="true" Min="640" Max="7680" Style="max-width: 100px;" />
-                <MudText Typo="Typo.body1">x</MudText>
-                <MudNumericField T="int" @bind-Value="_screenHeight" Label="H" Variant="Variant.Outlined"
-                                 Dense="true" Min="480" Max="4320" Style="max-width: 100px;" />
                 <MudDivider Vertical="true" FlexItem="true" />
                 @if (!DetectionService.IsRunning)
                 {
@@ -123,7 +133,7 @@
                 </CardHeaderContent>
             </MudCardHeader>
             <MudCardContent>
-                <MudSimpleTable Dense="true" Hover="true" Bordered="true">
+                <MudSimpleTable Dense="true" Hover="true" Bordered="true" Style="font-size: 0.85rem;">
                     <thead>
                         <tr>
                             <th style="width: 20px;"></th>
@@ -132,6 +142,12 @@
                             <th>Event</th>
                             <th>Region</th>
                             <th>Inverted</th>
+                            @if (DetectionService.IsRunning && DetectionService.PerRegionCapture)
+                            {
+                                <th style="font-family: monospace;">Capture</th>
+                                <th style="font-family: monospace;">Detect</th>
+                                <th style="font-family: monospace;">Total</th>
+                            }
                         </tr>
                     </thead>
                     <tbody>
@@ -139,6 +155,10 @@
                         @foreach (var d in DetectionService.ActiveProfile.Detectors)
                         {
                             var color = _regionColors[idx % _regionColors.Length];
+                            var timing = DetectionService.IsRunning && DetectionService.PerRegionCapture
+                                         && idx < DetectionService.DetectorTimings.Length
+                                ? DetectionService.DetectorTimings[idx]
+                                : (DetectorTiming?)null;
                             <tr>
                                 <td><div style="width:14px; height:14px; border-radius:3px; background:@color;"></div></td>
                                 <td>@d.Name</td>
@@ -146,6 +166,12 @@
                                 <td>@d.EventType</td>
                                 <td><code>@FormatRegion(d.Region)</code></td>
                                 <td>@(d.InvertMatch ? "Yes" : "")</td>
+                                @if (DetectionService.IsRunning && DetectionService.PerRegionCapture)
+                                {
+                                    <td style="font-family: monospace; text-align: right; white-space: pre;">@(timing?.CaptureMs.ToString("F2").PadLeft(7) ?? "     —") ms</td>
+                                    <td style="font-family: monospace; text-align: right; white-space: pre;">@(timing?.DetectMs.ToString("F2").PadLeft(7) ?? "     —") ms</td>
+                                    <td style="font-family: monospace; text-align: right; white-space: pre;">@(timing?.TotalMs.ToString("F2").PadLeft(7) ?? "     —") ms</td>
+                                }
                             </tr>
                             idx++;
                         }
@@ -218,8 +244,6 @@
 
     private List<string> _profiles = [];
     private string? _selectedProfile;
-    private int _screenWidth = 2560;
-    private int _screenHeight = 1440;
     private string? _previewDataUri;
     private bool _previewLive;
     private float _previewScale = 0.35f;
@@ -233,8 +257,6 @@
 
     protected override void OnInitialized()
     {
-        _screenWidth = ModuleConfig.Config.ScreenWidth;
-        _screenHeight = ModuleConfig.Config.ScreenHeight;
         _profiles = ProfileManager.ListProfiles().ToList();
 
         if (!string.IsNullOrEmpty(ModuleConfig.Config.ActiveProfileName)
@@ -251,7 +273,7 @@
         if (string.IsNullOrEmpty(_selectedProfile)) return;
         try
         {
-            EnsureScreenCaptureInitialized();
+            InitializeCapture();
             DetectionService.LoadProfile(_selectedProfile);
             ModuleConfig.Config.ActiveProfileName = _selectedProfile;
             ModuleConfig.SaveDeferred();
@@ -262,15 +284,13 @@
 
     private async Task StartDetection()
     {
-        ModuleConfig.Config.ScreenWidth = _screenWidth;
-        ModuleConfig.Config.ScreenHeight = _screenHeight;
-        ModuleConfig.SaveDeferred();
-
         try
         {
+            InitializeCapture();
             ScreenCapture.TargetFps = ModuleConfig.Config.TargetCaptureFps;
-            await DetectionService.StartAsync(_screenWidth, _screenHeight);
-            if (!_previewLive) TogglePreview();
+            DetectionService.PerRegionCapture = DetectionService.ActiveProfile?.PerRegionCapture ?? true;
+            DetectionService.TargetFps = ModuleConfig.Config.TargetCaptureFps;
+            await DetectionService.StartAsync();
         }
         catch (Exception ex) { SetStatus($"Start failed: {ex.Message}", Severity.Error); }
     }
@@ -285,7 +305,7 @@
         _previewLive = !_previewLive;
         if (_previewLive)
         {
-            EnsureScreenCaptureInitialized();
+            InitializeCapture();
             ScreenCapture.TargetFps = ModuleConfig.Config.TargetCaptureFps;
             if (!ScreenCapture.IsRunning)
                 ScreenCapture.Start();
@@ -305,7 +325,7 @@
 
     private void CaptureOneFrame()
     {
-        EnsureScreenCaptureInitialized();
+        InitializeCapture();
         PreviewService.PreviewScale = _previewScale;
         _previewDataUri = PreviewService.CapturePreviewFrame();
         StateHasChanged();
@@ -347,10 +367,20 @@
         PreviewService.PreviewScale = _previewScale;
     }
 
-    private void EnsureScreenCaptureInitialized()
+    private void InitializeCapture()
     {
-        if (ScreenCapture.ScreenWidth == 0)
-            ScreenCapture.Initialize(_screenWidth, _screenHeight);
+        var monitor = GetConfiguredMonitor();
+        if (monitor is not null)
+            ScreenCapture.Initialize(monitor.Bounds);
+        else
+            ScreenCapture.Initialize(ModuleConfig.Config.ScreenWidth, ModuleConfig.Config.ScreenHeight);
+    }
+
+    private MonitorInfo? GetConfiguredMonitor()
+    {
+        var deviceName = ModuleConfig.Config.MonitorDeviceName;
+        if (string.IsNullOrEmpty(deviceName)) return null;
+        return ScreenCaptureService.GetMonitors().FirstOrDefault(m => m.DeviceName == deviceName);
     }
 
     private void OnDetectionStateChanged()
