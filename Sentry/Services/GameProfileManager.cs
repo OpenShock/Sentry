@@ -8,10 +8,14 @@ namespace OpenShock.Sentry.Services;
 /// <summary>
 /// Manages loading, saving, and listing game profiles from the profiles directory.
 /// </summary>
-public sealed class GameProfileManager
+public sealed class GameProfileManager : IDisposable
 {
     private readonly ILogger<GameProfileManager> _logger;
     private readonly string _profilesDir;
+    private readonly Timer _saveTimer;
+    private readonly SemaphoreSlim _saveLock = new(1, 1);
+    private string? _pendingSaveName;
+    private GameProfile? _pendingSaveProfile;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -25,6 +29,7 @@ public sealed class GameProfileManager
         _logger = logger;
         _profilesDir = profilesDir;
         Directory.CreateDirectory(_profilesDir);
+        _saveTimer = new Timer(_ => _ = SaveNowAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
     public IReadOnlyList<string> ListProfiles()
@@ -65,6 +70,45 @@ public sealed class GameProfileManager
         _logger.LogInformation("Saved profile '{ProfileName}' to {Path}", profileName, path);
     }
 
+    /// <summary>
+    /// Queues a save with a 1-second debounce. Repeated calls reset the timer.
+    /// </summary>
+    public void SaveDebounced(string profileName, GameProfile profile)
+    {
+        lock (_saveTimer)
+        {
+            _pendingSaveName = profileName;
+            _pendingSaveProfile = profile;
+            _saveTimer.Change(TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private async Task SaveNowAsync()
+    {
+        string? name;
+        GameProfile? profile;
+
+        lock (_saveTimer)
+        {
+            name = _pendingSaveName;
+            profile = _pendingSaveProfile;
+            _pendingSaveName = null;
+            _pendingSaveProfile = null;
+        }
+
+        if (name is null || profile is null) return;
+
+        await _saveLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            Save(name, profile);
+        }
+        finally
+        {
+            _saveLock.Release();
+        }
+    }
+
     public void Delete(string profileName)
     {
         var path = Path.Combine(_profilesDir, $"{profileName}.json");
@@ -80,5 +124,11 @@ public sealed class GameProfileManager
         var dir = Path.Combine(_profilesDir, profileName);
         Directory.CreateDirectory(dir);
         return dir;
+    }
+
+    public void Dispose()
+    {
+        _saveTimer.Dispose();
+        _saveLock.Dispose();
     }
 }

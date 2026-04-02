@@ -221,17 +221,7 @@ public sealed class DetectionService : IDisposable
     // ── Per-detector operations (safe for Parallel.For — each writes to its own index) ──
 
     [SuppressMessage("Interoperability", "CA1416:Validate platform compatibility")]
-    private void CaptureRegion(int i)
-    {
-        var capture = i < _regionCaptures.Count ? _regionCaptures[i] : null;
-        if (capture is null) return;
-
-        var start = Stopwatch.GetTimestamp();
-        capture.CaptureFromScreen();
-        _detectorTimingsBuffer[i].CaptureMs = (float)Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-    }
-
-    private void DetectRegion(int i)
+    private void CaptureAndDetectRegion(int i)
     {
         var capture = i < _regionCaptures.Count ? _regionCaptures[i] : null;
         if (capture is null)
@@ -243,6 +233,10 @@ public sealed class DetectionService : IDisposable
         var (detector, config) = _activeDetectors[i];
 
         var start = Stopwatch.GetTimestamp();
+        capture.CaptureFromScreen();
+        _detectorTimingsBuffer[i].CaptureMs = (float)Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+
+        start = Stopwatch.GetTimestamp();
         var result = detector.Detect(capture.GrayMat);
         _detectorTimingsBuffer[i].DetectMs = (float)Stopwatch.GetElapsedTime(start).TotalMilliseconds;
 
@@ -357,8 +351,7 @@ public sealed class DetectionService : IDisposable
     [SuppressMessage("Interoperability", "CA1416:Validate platform compatibility")]
     private void DetectionLoopPerRegion()
     {
-        var parallelCapture = _activeProfile!.ParallelCapture;
-        var parallelDetect = _activeProfile!.ParallelDetection;
+        var parallel = _activeProfile!.ParallelDetection;
         var count = _activeDetectors.Count;
 
         while (_running)
@@ -369,19 +362,13 @@ public sealed class DetectionService : IDisposable
             {
                 _detectionSw.Restart();
 
-                // Phase 1: Capture all regions
-                if (parallelCapture)
-                    Parallel.For(0, count, CaptureRegion);
+                // Capture + detect (each detector independently)
+                if (parallel)
+                    Parallel.For(0, count, CaptureAndDetectRegion);
                 else
-                    for (var i = 0; i < count; i++) CaptureRegion(i);
+                    for (var i = 0; i < count; i++) CaptureAndDetectRegion(i);
 
-                // Phase 2: Detect all regions
-                if (parallelDetect)
-                    Parallel.For(0, count, DetectRegion);
-                else
-                    for (var i = 0; i < count; i++) DetectRegion(i);
-
-                // Phase 3: Process results
+                // Process results (always sequential — triggers, overlays, UI)
                 ProcessDetectionResults();
                 FinishDetectionFrame();
 

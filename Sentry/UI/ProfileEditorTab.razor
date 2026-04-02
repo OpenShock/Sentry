@@ -1,4 +1,5 @@
 @using OpenShock.Desktop.ModuleBase.Models
+@using System.Text.Json
 @implements IDisposable
 
 <MudStack Spacing="3" Class="pa-4">
@@ -27,11 +28,6 @@
                     Delete
                 </MudButton>
                 <MudSpacer />
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                           OnClick="SaveProfile" Disabled="@(_profile is null)"
-                           StartIcon="@Icons.Material.Filled.Save">
-                    Save
-                </MudButton>
             </MudStack>
         </MudCardContent>
     </MudCard>
@@ -43,25 +39,24 @@
             <MudCardContent>
                 <MudGrid>
                     <MudItem xs="6">
-                        <MudTextField @bind-Value="_profile.Name" Label="Profile Name"
+                        <MudTextField Value="_profile.Name" Label="Profile Name"
+                                      ValueChanged="@((string v) => { _profile.Name = v; QueueSave(); })"
                                       Variant="Variant.Outlined" Dense="true" />
                     </MudItem>
                     <MudItem xs="4">
-                        <MudTextField @bind-Value="_profile.ProcessName" Label="Process Name (optional)"
+                        <MudTextField Value="_profile.ProcessName" Label="Process Name (optional)"
+                                      ValueChanged="@((string? v) => { _profile.ProcessName = v; QueueSave(); })"
                                       Variant="Variant.Outlined" Dense="true"
                                       HelperText="e.g. helldivers2, javaw" />
                     </MudItem>
                     <MudItem xs="2" Class="d-flex align-center">
-                        <MudSwitch T="bool" @bind-Value="_profile.PerRegionCapture"
+                        <MudSwitch T="bool" Value="_profile.PerRegionCapture"
+                                   ValueChanged="@((bool v) => { _profile.PerRegionCapture = v; QueueSave(); })"
                                    Label="Per-region capture" Color="Color.Primary" />
                     </MudItem>
                     <MudItem xs="2" Class="d-flex align-center">
-                        <MudSwitch T="bool" @bind-Value="_profile.ParallelCapture"
-                                   Label="Parallel capture" Color="Color.Secondary"
-                                   Disabled="@(!_profile.PerRegionCapture)" />
-                    </MudItem>
-                    <MudItem xs="2" Class="d-flex align-center">
-                        <MudSwitch T="bool" @bind-Value="_profile.ParallelDetection"
+                        <MudSwitch T="bool" Value="_profile.ParallelDetection"
+                                   ValueChanged="@((bool v) => { _profile.ParallelDetection = v; QueueSave(); })"
                                    Label="Parallel detection" Color="Color.Secondary" />
                     </MudItem>
                 </MudGrid>
@@ -139,7 +134,8 @@
                                                           Variant="Variant.Outlined" />
                                         </MudItem>
                                         <MudItem xs="4">
-                                            <MudSelect T="DetectorBackendType" @bind-Value="detector.Backend"
+                                            <MudSelect T="DetectorBackendType" Value="detector.Backend"
+                                                       ValueChanged="@((DetectorBackendType v) => { detector.Backend = v; QueueSave(); })"
                                                        Label="Backend" Variant="Variant.Outlined" Dense="true">
                                                 @foreach (var bt in Enum.GetValues<DetectorBackendType>())
                                                 {
@@ -148,7 +144,8 @@
                                             </MudSelect>
                                         </MudItem>
                                         <MudItem xs="4">
-                                            <MudSelect T="GameEventType" @bind-Value="detector.EventType"
+                                            <MudSelect T="GameEventType" Value="detector.EventType"
+                                                       ValueChanged="@((GameEventType v) => { detector.EventType = v; QueueSave(); })"
                                                        Label="Event Type" Variant="Variant.Outlined" Dense="true">
                                                 @foreach (var et in Enum.GetValues<GameEventType>())
                                                 {
@@ -189,7 +186,8 @@
                                         </MudItem>
 
                                         <MudItem xs="12">
-                                            <MudSwitch T="bool" @bind-Value="detector.InvertMatch"
+                                            <MudSwitch T="bool" Value="detector.InvertMatch"
+                                                       ValueChanged="@((bool v) => { detector.InvertMatch = v; QueueSave(); })"
                                                        Label="Invert Match (trigger when NOT detected)" Color="Color.Warning" />
                                         </MudItem>
 
@@ -319,7 +317,8 @@
                                 var actionIdx = i;
                                 <tr>
                                     <td>
-                                        <MudSelect T="GameEventType" @bind-Value="action.EventType"
+                                        <MudSelect T="GameEventType" Value="action.EventType"
+                                                   ValueChanged="@((GameEventType v) => { action.EventType = v; QueueSave(); })"
                                                    Variant="Variant.Text" Dense="true" DisableUnderLine="true">
                                             @foreach (var et in Enum.GetValues<GameEventType>())
                                             {
@@ -328,7 +327,8 @@
                                         </MudSelect>
                                     </td>
                                     <td>
-                                        <MudSelect T="ControlType" @bind-Value="action.ControlType"
+                                        <MudSelect T="ControlType" Value="action.ControlType"
+                                                   ValueChanged="@((ControlType v) => { action.ControlType = v; QueueSave(); })"
                                                    Variant="Variant.Text" Dense="true" DisableUnderLine="true">
                                             @foreach (var ct in Enum.GetValues<ControlType>())
                                             {
@@ -337,17 +337,20 @@
                                         </MudSelect>
                                     </td>
                                     <td>
-                                        <MudNumericField T="byte" @bind-Value="action.Intensity"
+                                        <MudNumericField T="byte" Value="action.Intensity"
+                                                         ValueChanged="@((byte v) => { action.Intensity = v; QueueSave(); })"
                                                          Variant="Variant.Text" Dense="true" HideSpinButtons="true"
                                                          Min="(byte)1" Max="(byte)100" />
                                     </td>
                                     <td>
-                                        <MudNumericField T="ushort" @bind-Value="action.Duration"
+                                        <MudNumericField T="ushort" Value="action.Duration"
+                                                         ValueChanged="@((ushort v) => { action.Duration = v; QueueSave(); })"
                                                          Variant="Variant.Text" Dense="true" HideSpinButtons="true"
                                                          Min="(ushort)300" Max="(ushort)30000" />
                                     </td>
                                     <td>
-                                        <MudNumericField T="int" @bind-Value="action.CooldownMs"
+                                        <MudNumericField T="int" Value="action.CooldownMs"
+                                                         ValueChanged="@((int v) => { action.CooldownMs = v; QueueSave(); })"
                                                          Variant="Variant.Text" Dense="true" HideSpinButtons="true"
                                                          Min="100" Max="60000" />
                                     </td>
@@ -421,8 +424,11 @@
 
     private void NewProfile()
     {
-        _selectedProfile = null;
+        var name = "new-profile";
         _profile = new EditableGameProfile { Name = "New Profile" };
+        ProfileManager.Save(name, _profile.ToGameProfile());
+        _selectedProfile = name;
+        RefreshProfiles();
         _regionItems = [];
     }
 
@@ -436,15 +442,10 @@
         SetStatus("Profile deleted.", Severity.Info);
     }
 
-    private void SaveProfile()
+    private void QueueSave()
     {
-        if (_profile is null) return;
-
-        var saveName = _selectedProfile ?? _profile.Name.ToLowerInvariant().Replace(' ', '-');
-        ProfileManager.Save(saveName, _profile.ToGameProfile());
-        _selectedProfile = saveName;
-        RefreshProfiles();
-        SetStatus($"Saved '{saveName}'", Severity.Success);
+        if (_profile is null || string.IsNullOrEmpty(_selectedProfile)) return;
+        ProfileManager.SaveDebounced(_selectedProfile, _profile.ToGameProfile());
     }
 
     private void CapturePreview()
@@ -476,6 +477,7 @@
             _expanded = true
         });
         SyncRegionItems();
+        QueueSave();
         if (_regionPreview is not null) await _regionPreview.RefreshRegions();
     }
 
@@ -484,6 +486,7 @@
         if (_profile is null || index < 0 || index >= _profile.Detectors.Count) return;
         _profile.Detectors.RemoveAt(index);
         SyncRegionItems();
+        QueueSave();
         if (_regionPreview is not null) await _regionPreview.RefreshRegions();
     }
 
@@ -501,15 +504,14 @@
         }).ToList();
     }
 
-    private async Task OnRegionDragged(RegionPreview.RegionChangedArgs args)
+    private Task OnRegionDragged(RegionPreview.RegionChangedArgs args)
     {
-        if (_profile is null || args.Index < 0 || args.Index >= _profile.Detectors.Count) return;
+        if (_profile is null || args.Index < 0 || args.Index >= _profile.Detectors.Count) return Task.CompletedTask;
         var detector = _profile.Detectors[args.Index];
         detector.Region.X = args.X;
         detector.Region.Y = args.Y;
         detector.Region.Width = args.Width;
         detector.Region.Height = args.Height;
-        // Keep _regionItems in sync too
         if (args.Index < _regionItems.Count)
         {
             _regionItems[args.Index].X = args.X;
@@ -517,7 +519,8 @@
             _regionItems[args.Index].Width = args.Width;
             _regionItems[args.Index].Height = args.Height;
         }
-        await Task.CompletedTask;
+        QueueSave();
+        return Task.CompletedTask;
     }
 
     private void OnRegionClicked(int index)
@@ -529,6 +532,7 @@
     {
         apply(detector.Region);
         SyncRegionItems();
+        QueueSave();
         if (_regionPreview is not null) await _regionPreview.RefreshRegions();
     }
 
@@ -536,6 +540,7 @@
     {
         detector.Name = name;
         SyncRegionItems();
+        QueueSave();
         if (_regionPreview is not null) await _regionPreview.RefreshRegions();
     }
 
@@ -549,32 +554,34 @@
             Duration = 500,
             CooldownMs = 2000
         });
+        QueueSave();
     }
 
     private void RemoveAction(int index)
     {
         if (_profile is null || index < 0 || index >= _profile.Actions.Count) return;
         _profile.Actions.RemoveAt(index);
+        QueueSave();
     }
 
     // Settings helpers for the dynamic Dictionary<string, JsonElement>
     private static string GetSetting(EditableDetectorConfig d, string key) =>
         d.RawSettings.TryGetValue(key, out var v) ? v : "";
 
-    private static void SetSetting(EditableDetectorConfig d, string key, string value) =>
-        d.RawSettings[key] = value;
+    private void SetSetting(EditableDetectorConfig d, string key, string value)
+    { d.RawSettings[key] = value; QueueSave(); }
 
     private static float GetSettingFloat(EditableDetectorConfig d, string key, float fallback) =>
         d.RawSettings.TryGetValue(key, out var v) && float.TryParse(v, out var f) ? f : fallback;
 
-    private static void SetSettingFloat(EditableDetectorConfig d, string key, float value) =>
-        d.RawSettings[key] = value.ToString("F2");
+    private void SetSettingFloat(EditableDetectorConfig d, string key, float value)
+    { d.RawSettings[key] = value.ToString("F2"); QueueSave(); }
 
     private static int GetSettingInt(EditableDetectorConfig d, string key, int fallback) =>
         d.RawSettings.TryGetValue(key, out var v) && int.TryParse(v, out var i) ? i : fallback;
 
-    private static void SetSettingInt(EditableDetectorConfig d, string key, int value) =>
-        d.RawSettings[key] = value.ToString();
+    private void SetSettingInt(EditableDetectorConfig d, string key, int value)
+    { d.RawSettings[key] = value.ToString(); QueueSave(); }
 
     private void SetStatus(string msg, Severity sev) { _statusMessage = msg; _statusSeverity = sev; }
 
