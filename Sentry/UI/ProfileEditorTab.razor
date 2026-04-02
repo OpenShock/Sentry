@@ -1,4 +1,6 @@
 @using OpenShock.Desktop.ModuleBase.Models
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
 @using System.Text.Json
 @implements IDisposable
 
@@ -28,6 +30,20 @@
                     Delete
                 </MudButton>
                 <MudSpacer />
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                           OnClick="ExportProfile" Disabled="@(_profile is null)"
+                           StartIcon="@Icons.Material.Filled.FileDownload">
+                    Export
+                </MudButton>
+                <MudFileUpload T="IBrowserFile" Accept=".json" FilesChanged="ImportProfile"
+                               MaximumFileCount="1" Style="margin: 0;">
+                    <ActivatorContent>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.FileUpload">
+                            Import
+                        </MudButton>
+                    </ActivatorContent>
+                </MudFileUpload>
             </MudStack>
         </MudCardContent>
     </MudCard>
@@ -380,6 +396,7 @@
     [ModuleInject] private PreviewService PreviewService { get; set; } = null!;
     [ModuleInject] private ScreenCaptureService ScreenCapture { get; set; } = null!;
     [ModuleInject] private IModuleConfig<SentryConfig> ModuleConfig { get; set; } = null!;
+    [Inject] private IJSRuntime JS { get; set; } = null!;
 
     private List<string> _profiles = [];
     private string? _selectedProfile;
@@ -582,6 +599,51 @@
 
     private void SetSettingInt(EditableDetectorConfig d, string key, int value)
     { d.RawSettings[key] = value.ToString(); QueueSave(); }
+
+    private static readonly JsonSerializerOptions ExportJsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
+    };
+
+    private async Task ExportProfile()
+    {
+        if (_profile is null) return;
+        var json = JsonSerializer.Serialize(_profile.ToGameProfile(), ExportJsonOptions);
+        var fileName = $"{_selectedProfile ?? _profile.Name.ToLowerInvariant().Replace(' ', '-')}.json";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+        var base64 = Convert.ToBase64String(bytes);
+        await JS.InvokeVoidAsync("eval",
+            $"var a=document.createElement('a');a.href='data:application/json;base64,{base64}';a.download='{fileName}';document.body.appendChild(a);a.click();a.remove();");
+    }
+
+    private async Task ImportProfile(IBrowserFile? file)
+    {
+        if (file is null) return;
+        try
+        {
+            await using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024);
+            var profile = await JsonSerializer.DeserializeAsync<GameProfile>(stream, ExportJsonOptions);
+            if (profile is null)
+            {
+                SetStatus("Invalid profile file.", Severity.Error);
+                return;
+            }
+
+            var saveName = Path.GetFileNameWithoutExtension(file.Name);
+            ProfileManager.Save(saveName, profile);
+            RefreshProfiles();
+            _selectedProfile = saveName;
+            _profile = EditableGameProfile.From(profile);
+            SyncRegionItems();
+            SetStatus($"Imported '{saveName}'", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Import failed: {ex.Message}", Severity.Error);
+        }
+    }
 
     private void SetStatus(string msg, Severity sev) { _statusMessage = msg; _statusSeverity = sev; }
 
