@@ -55,6 +55,15 @@
                         <MudSwitch T="bool" @bind-Value="_profile.PerRegionCapture"
                                    Label="Per-region capture" Color="Color.Primary" />
                     </MudItem>
+                    <MudItem xs="2" Class="d-flex align-center">
+                        <MudSwitch T="bool" @bind-Value="_profile.ParallelCapture"
+                                   Label="Parallel capture" Color="Color.Secondary"
+                                   Disabled="@(!_profile.PerRegionCapture)" />
+                    </MudItem>
+                    <MudItem xs="2" Class="d-flex align-center">
+                        <MudSwitch T="bool" @bind-Value="_profile.ParallelDetection"
+                                   Label="Parallel detection" Color="Color.Secondary" />
+                    </MudItem>
                 </MudGrid>
             </MudCardContent>
         </MudCard>
