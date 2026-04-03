@@ -22,6 +22,11 @@ public sealed class PreviewService : IDisposable
     private readonly List<RegionOverlay> _regionOverlays = [];
     private readonly List<DetectionOverlay> _detectionOverlays = [];
 
+    // Pre-allocated buffers to reduce per-frame GC pressure
+    private Mat _resizedMat = new();
+    private static readonly ImageEncodingParam[] JpegParams = [new(ImwriteFlags.JpegQuality, 95)];
+    private const string DataUriPrefix = "data:image/jpeg;base64,";
+
     /// <summary>Scale factor for the preview image (1.0 = full resolution)</summary>
     public float PreviewScale { get; set; } = 0.35f;
 
@@ -114,12 +119,11 @@ public sealed class PreviewService : IDisposable
             var previewWidth = (int)(_screenCapture.ScreenWidth * PreviewScale);
             var previewHeight = (int)(_screenCapture.ScreenHeight * PreviewScale);
 
-            using var resized = new Mat();
-            Cv2.Resize(colorFrame, resized, new Size(previewWidth, previewHeight));
+            Cv2.Resize(colorFrame, _resizedMat, new Size(previewWidth, previewHeight));
 
             // Encode to JPEG
-            Cv2.ImEncode(".jpg", resized, out var buf, [new ImageEncodingParam(ImwriteFlags.JpegQuality, 95)]);
-            return $"data:image/jpeg;base64,{Convert.ToBase64String(buf)}";
+            Cv2.ImEncode(".jpg", _resizedMat, out var buf, JpegParams);
+            return string.Concat(DataUriPrefix, Convert.ToBase64String(buf));
         }
         catch (Exception ex)
         {
@@ -128,7 +132,7 @@ public sealed class PreviewService : IDisposable
         }
     }
 
-    public void SetRegionOverlays(IEnumerable<RegionOverlay> overlays)
+    public void SetRegionOverlays(List<RegionOverlay> overlays)
     {
         lock (_overlayLock)
         {
@@ -137,7 +141,7 @@ public sealed class PreviewService : IDisposable
         }
     }
 
-    public void SetDetectionOverlays(IEnumerable<DetectionOverlay> overlays)
+    public void SetDetectionOverlays(List<DetectionOverlay> overlays)
     {
         lock (_overlayLock)
         {
@@ -155,7 +159,10 @@ public sealed class PreviewService : IDisposable
         }
     }
 
-    public void Dispose() { }
+    public void Dispose()
+    {
+        _resizedMat.Dispose();
+    }
 }
 
 public sealed class RegionOverlay
@@ -168,8 +175,8 @@ public sealed class RegionOverlay
     public string? Text { get; set; }
 }
 
-public sealed class DetectionOverlay
+public struct DetectionOverlay
 {
-    public required Rect BoundingBox { get; init; }
-    public bool Triggered { get; init; }
+    public Rect BoundingBox;
+    public bool Triggered;
 }

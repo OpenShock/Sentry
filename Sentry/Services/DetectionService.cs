@@ -31,6 +31,9 @@ public sealed class DetectionService : IDisposable
     // Per-region capture resources (used when PerRegionCapture is true)
     private readonly List<RegionCapture?> _regionCaptures = [];
 
+    // Pre-allocated overlay buffers to avoid per-frame allocations
+    private readonly List<RegionOverlay> _regionOverlayBuffer = [];
+
     // Detection performance tracking
     private readonly Stopwatch _detectionSw = new();
     private readonly Stopwatch _detectionFpsTimer = new();
@@ -297,7 +300,7 @@ public sealed class DetectionService : IDisposable
                 _detectionOverlays.Add(new DetectionOverlay
                 {
                     BoundingBox = new Rect(pixelRect.X + box.X, pixelRect.Y + box.Y, box.Width, box.Height),
-                    Triggered = result.Triggered
+                    Triggered = result.Triggered,
                 });
             }
 
@@ -423,26 +426,42 @@ public sealed class DetectionService : IDisposable
     private void UpdatePreviewOverlays()
     {
         var hasResults = _detectorResults.Length == _activeDetectors.Count && _running;
-        var overlays = _activeDetectors.Select((d, i) =>
-        {
-            var overlay = new RegionOverlay
-            {
-                Region = d.Config.Region,
-                Label = d.Config.Name,
-                Color = RegionColors[i % RegionColors.Length]
-            };
 
+        // Rebuild buffer only when detector count changes
+        if (_regionOverlayBuffer.Count != _activeDetectors.Count)
+        {
+            _regionOverlayBuffer.Clear();
+            for (var i = 0; i < _activeDetectors.Count; i++)
+            {
+                var d = _activeDetectors[i];
+                _regionOverlayBuffer.Add(new RegionOverlay
+                {
+                    Region = d.Config.Region,
+                    Label = d.Config.Name,
+                    Color = RegionColors[i % RegionColors.Length]
+                });
+            }
+        }
+
+        // Update mutable state in-place
+        for (var i = 0; i < _regionOverlayBuffer.Count; i++)
+        {
+            var overlay = _regionOverlayBuffer[i];
             if (hasResults)
             {
                 overlay.Triggered = _detectorResults[i].Triggered;
                 overlay.Confidence = _detectorResults[i].Confidence;
                 overlay.Text = _detectorResults[i].Text;
             }
+            else
+            {
+                overlay.Triggered = null;
+                overlay.Confidence = 0;
+                overlay.Text = null;
+            }
+        }
 
-            return overlay;
-        });
-
-        _previewService.SetRegionOverlays(overlays);
+        _previewService.SetRegionOverlays(_regionOverlayBuffer);
     }
 
     // ── Logging ────────────────────────────────────────────────────────
