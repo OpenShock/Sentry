@@ -16,6 +16,7 @@ public sealed class OpenCvTemplateDetector : IDetector
     private readonly ILogger<OpenCvTemplateDetector> _logger;
     private Mat? _template;
     private float _threshold = 0.8f;
+    private bool _invertMatch;
 
     public string Name { get; private set; } = nameof(OpenCvTemplateDetector);
 
@@ -38,6 +39,8 @@ public sealed class OpenCvTemplateDetector : IDetector
         _template = Cv2.ImRead(templatePath, ImreadModes.Grayscale);
         if (_template.Empty())
             throw new FileNotFoundException($"Template image not found or empty: {templatePath}");
+
+        _invertMatch = config.InvertMatch;
 
         if (config.Settings.TryGetValue("threshold", out var thresholdEl))
             _threshold = thresholdEl.GetSingle();
@@ -72,16 +75,17 @@ public sealed class OpenCvTemplateDetector : IDetector
         Cv2.MinMaxLoc(result, out _, out var maxVal, out _, out var maxLoc);
 
         var confidence = (float)maxVal;
-        var detected = confidence >= _threshold;
+        var matched = confidence >= _threshold;
+        var triggered = _invertMatch ? !matched : matched;
 
         if (template != _template)
             template.Dispose();
 
         return new DetectionResult
         {
-            Detected = detected,
+            Triggered = triggered,
             Confidence = confidence,
-            BoundingBox = detected
+            BoundingBox = matched
                 ? new Rect(maxLoc.X, maxLoc.Y, _template.Width, _template.Height)
                 : null
         };

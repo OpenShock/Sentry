@@ -242,9 +242,11 @@ public sealed class DetectionService : IDisposable
 
         _detectorResults[i] = new DetectorResult
         {
-            Triggered = config.InvertMatch ? !result.Detected : result.Detected,
+            Triggered = result.Triggered,
             Confidence = result.Confidence,
-            BoundingBox = result.BoundingBox
+            BoundingBox = result.BoundingBox,
+            Value = result.Value,
+            Text = result.Text
         };
     }
 
@@ -268,9 +270,11 @@ public sealed class DetectionService : IDisposable
 
         _detectorResults[i] = new DetectorResult
         {
-            Triggered = config.InvertMatch ? !result.Detected : result.Detected,
+            Triggered = result.Triggered,
             Confidence = result.Confidence,
-            BoundingBox = result.BoundingBox
+            BoundingBox = result.BoundingBox,
+            Value = result.Value,
+            Text = result.Text
         };
     }
 
@@ -298,7 +302,7 @@ public sealed class DetectionService : IDisposable
 
             if (result.Triggered)
             {
-                AddLogEntry(detector.Name, config.EventType, result.Confidence, config.InvertMatch);
+                AddLogEntry(detector.Name, config.EventType, result.Confidence);
                 _ = _shockTrigger.HandleDetection(config.EventType, _activeProfile!.Actions);
             }
         }
@@ -441,15 +445,14 @@ public sealed class DetectionService : IDisposable
 
     // ── Logging ────────────────────────────────────────────────────────
 
-    private void AddLogEntry(string detectorName, GameEventType eventType, float confidence, bool inverted)
+    private void AddLogEntry(string detectorName, GameEventType eventType, float confidence)
     {
         DetectionLog.Enqueue(new DetectionLogEntry
         {
             Timestamp = DateTime.Now,
             DetectorName = detectorName,
             EventType = eventType,
-            Confidence = confidence,
-            Inverted = inverted
+            Confidence = confidence
         });
 
         while (DetectionLog.Count > MaxLogEntries)
@@ -478,7 +481,6 @@ public sealed class DetectionLogEntry
     public required string DetectorName { get; init; }
     public GameEventType EventType { get; init; }
     public float Confidence { get; init; }
-    public bool Inverted { get; init; }
 }
 
 public struct DetectorTiming
@@ -494,4 +496,6 @@ public struct DetectorResult
     public bool Triggered;
     public float Confidence;
     public Rect? BoundingBox;
+    public float? Value;
+    public string? Text;
 }

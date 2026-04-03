@@ -20,6 +20,7 @@ public sealed class OpenCvSiftDetector : IDetector
     private Size _templateSize;
     private float _ratioThreshold = 0.5f;
     private int _minGoodMatches = 8;
+    private bool _invertMatch;
 
     public string Name { get; private set; } = nameof(OpenCvSiftDetector);
 
@@ -44,6 +45,8 @@ public sealed class OpenCvSiftDetector : IDetector
             throw new FileNotFoundException($"Template image not found or empty: {templatePath}");
 
         _templateSize = templateMat.Size();
+
+        _invertMatch = config.InvertMatch;
 
         if (config.Settings.TryGetValue("ratioThreshold", out var ratioEl))
             _ratioThreshold = ratioEl.GetSingle();
@@ -114,7 +117,7 @@ public sealed class OpenCvSiftDetector : IDetector
 
         return new DetectionResult
         {
-            Detected = true,
+            Triggered = !_invertMatch,
             Confidence = Math.Min(confidence, 1f),
             BoundingBox = boundingRect
         };
