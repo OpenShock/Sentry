@@ -11,7 +11,7 @@ public interface IDetector : IDisposable
     /// Initialize the detector with its configuration settings.
     /// Called once before detection starts.
     /// </summary>
-    void Initialize(DetectorConfig config, string profileBaseDir);
+    Task Initialize(DetectorConfig config, string profileBaseDir);
 
     /// <summary>
     /// Run detection on a cropped region of the screen frame.

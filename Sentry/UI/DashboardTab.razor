@@ -268,13 +268,13 @@
         DetectionService.OnStateChanged += OnDetectionStateChanged;
     }
 
-    private void LoadProfile()
+    private async Task LoadProfile()
     {
         if (string.IsNullOrEmpty(_selectedProfile)) return;
         try
         {
             InitializeCapture();
-            DetectionService.LoadProfile(_selectedProfile);
+            await DetectionService.LoadProfile(_selectedProfile);
             ModuleConfig.Config.ActiveProfileName = _selectedProfile;
             ModuleConfig.SaveDeferred();
             SetStatus($"Loaded '{_selectedProfile}'", Severity.Success);

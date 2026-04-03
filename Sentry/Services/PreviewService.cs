@@ -68,8 +68,10 @@ public sealed class PreviewService : IDisposable
                     // Label (top-left, above the rect)
                     if (!string.IsNullOrEmpty(region.Label))
                     {
-                        Cv2.PutText(colorFrame, region.Label,
-                            new OpenCvSharp.Point(pixelRect.X + 4, pixelRect.Y - 8),
+                        var labelPos = new OpenCvSharp.Point(pixelRect.X + 4, pixelRect.Y - 8);
+                        Cv2.PutText(colorFrame, region.Label, labelPos,
+                            HersheyFonts.HersheySimplex, 0.6, new Scalar(0, 0, 0), 5);
+                        Cv2.PutText(colorFrame, region.Label, labelPos,
                             HersheyFonts.HersheySimplex, 0.6, region.Color, 2);
                     }
 
@@ -79,9 +81,25 @@ public sealed class PreviewService : IDisposable
                         var statusText = region.Triggered.Value
                             ? $"TRIGGERED {region.Confidence:P0}"
                             : $"{region.Confidence:P0}";
-                        Cv2.PutText(colorFrame, statusText,
-                            new OpenCvSharp.Point(pixelRect.X + 4, pixelRect.Y + pixelRect.Height - 8),
+                        var statusPos = new OpenCvSharp.Point(pixelRect.X + 4, pixelRect.Y + pixelRect.Height - 8);
+                        Cv2.PutText(colorFrame, statusText, statusPos,
+                            HersheyFonts.HersheySimplex, 0.5, new Scalar(0, 0, 0), 4);
+                        Cv2.PutText(colorFrame, statusText, statusPos,
                             HersheyFonts.HersheySimplex, 0.5, borderColor, 2);
+                    }
+
+                    // OCR text (below the region)
+                    if (!string.IsNullOrEmpty(region.Text))
+                    {
+                        var displayText = region.Text.ReplaceLineEndings(" ");
+                        if (displayText.Length > 60)
+                            displayText = displayText[..57] + "...";
+                        var textPos = new OpenCvSharp.Point(pixelRect.X + 4, pixelRect.Y + pixelRect.Height + 20);
+                        // Dark outline for readability
+                        Cv2.PutText(colorFrame, displayText, textPos,
+                            HersheyFonts.HersheySimplex, 0.5, new Scalar(0, 0, 0), 4);
+                        Cv2.PutText(colorFrame, displayText, textPos,
+                            HersheyFonts.HersheySimplex, 0.5, region.Color, 2);
                     }
                 }
 
@@ -147,6 +165,7 @@ public sealed class RegionOverlay
     public Scalar Color { get; init; } = new(255, 200, 0); // Cyan-ish
     public bool? Triggered { get; set; }
     public float Confidence { get; set; }
+    public string? Text { get; set; }
 }
 
 public sealed class DetectionOverlay

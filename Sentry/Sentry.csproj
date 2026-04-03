@@ -37,10 +37,11 @@
         <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260330" />
         <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260330" />
         <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260302" />
-        <PackageReference Include="OpenShock.Desktop.ModuleBase" Version="1.1.2-dev.235" />
+        <PackageReference Include="OpenShock.Desktop.ModuleBase" Version="1.1.2-dev.237" />
         <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.5" />
         <PackageReference Include="System.Drawing.Common" Version="10.0.5" />
         <PackageReference Include="MudBlazor" Version="8.15.0" />
+        <PackageReference Include="TesseractOCR" Version="5.5.2" />
     </ItemGroup>
 
     <ItemGroup>
@@ -48,6 +49,10 @@
       <EmbeddedResource Include="Resources\sentry-icon.png" />
       <None Remove="wwwroot\js\regionEditor.js" />
       <EmbeddedResource Include="wwwroot\js\regionEditor.js" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <OpenShockExtraDir Include="x64" />
     </ItemGroup>
 
     <Target Name="CopyModuleToDesktop" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">

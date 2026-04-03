@@ -478,7 +478,7 @@
             else
                 ScreenCapture.Initialize(ModuleConfig.Config.ScreenWidth, ModuleConfig.Config.ScreenHeight);
         }
-        PreviewService.PreviewScale = 0.5f;
+        PreviewService.PreviewScale = 1f;
         _previewDataUri = PreviewService.CapturePreviewFrame();
         SyncRegionItems();
     }

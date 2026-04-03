@@ -83,8 +83,9 @@ public sealed class DetectionService : IDisposable
         _previewService = previewService;
     }
 
-    public void LoadProfile(string profileName)
+    public async Task LoadProfile(string profileName)
     {
+        if (_running) Stop();
         UnloadProfile();
 
         var profile = _profileManager.Load(profileName);
@@ -97,7 +98,7 @@ public sealed class DetectionService : IDisposable
         {
             try
             {
-                var detector = _detectorFactory.Create(detectorConfig, baseDir);
+                var detector = await _detectorFactory.Create(detectorConfig, baseDir);
                 _activeDetectors.Add((detector, detectorConfig));
             }
             catch (Exception ex)
@@ -435,6 +436,7 @@ public sealed class DetectionService : IDisposable
             {
                 overlay.Triggered = _detectorResults[i].Triggered;
                 overlay.Confidence = _detectorResults[i].Confidence;
+                overlay.Text = _detectorResults[i].Text;
             }
 
             return overlay;

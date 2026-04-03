@@ -25,7 +25,7 @@ public sealed class OpenCvTemplateDetector : IDetector
         _logger = logger;
     }
 
-    public void Initialize(DetectorConfig config, string profileBaseDir)
+    public Task Initialize(DetectorConfig config, string profileBaseDir)
     {
         Name = config.Name;
 
@@ -47,6 +47,8 @@ public sealed class OpenCvTemplateDetector : IDetector
 
         _logger.LogInformation("Initialized template detector '{Name}' with template {Path}, threshold {Threshold}",
             Name, templatePath, _threshold);
+
+        return Task.CompletedTask;
     }
 
     public DetectionResult Detect(Mat regionFrame)

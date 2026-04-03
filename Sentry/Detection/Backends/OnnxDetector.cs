@@ -19,10 +19,11 @@ public sealed class OnnxDetector : IDetector
         _logger = logger;
     }
 
-    public void Initialize(DetectorConfig config, string profileBaseDir)
+    public Task Initialize(DetectorConfig config, string profileBaseDir)
     {
         Name = config.Name;
         _logger.LogWarning("ONNX detector '{Name}' initialized as stub — not yet implemented", Name);
+        return Task.CompletedTask;
     }
 
     public DetectionResult Detect(Mat regionFrame)

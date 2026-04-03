@@ -81,7 +81,9 @@ public class SentryModule : DesktopModuleBase
 
         services.AddSingleton<ScreenCaptureService>();
         services.AddSingleton<PreviewService>();
-        services.AddSingleton<DetectorFactory>();
+        services.AddSingleton(sp => new DetectorFactory(
+            sp.GetRequiredService<ILoggerFactory>(),
+            dataDir));
         services.AddSingleton<ShockTriggerService>();
         services.AddSingleton(sp => new GameProfileManager(
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<GameProfileManager>(),
@@ -91,7 +93,7 @@ public class SentryModule : DesktopModuleBase
         return services.BuildServiceProvider();
     }
 
-    public override Task Start()
+    public override async Task Start()
     {
         var logger = ModuleServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<SentryModule>();
         var config = ModuleServiceProvider.GetRequiredService<IModuleConfig<SentryConfig>>();
@@ -100,13 +102,11 @@ public class SentryModule : DesktopModuleBase
         {
             var detectionService = ModuleServiceProvider.GetRequiredService<DetectionService>();
             logger.LogInformation("Loading profile '{ProfileName}'", config.Config.ActiveProfileName);
-            detectionService.LoadProfile(config.Config.ActiveProfileName);
+            await detectionService.LoadProfile(config.Config.ActiveProfileName);
         }
         else
         {
             logger.LogInformation("No active profile configured. Use the Dashboard to select one.");
         }
-
-        return Task.CompletedTask;
     }
 }

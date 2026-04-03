@@ -29,7 +29,7 @@ public sealed class OpenCvSiftDetector : IDetector
         _logger = logger;
     }
 
-    public void Initialize(DetectorConfig config, string profileBaseDir)
+    public Task Initialize(DetectorConfig config, string profileBaseDir)
     {
         Name = config.Name;
 
@@ -61,6 +61,8 @@ public sealed class OpenCvSiftDetector : IDetector
         _logger.LogInformation(
             "Initialized SIFT detector '{Name}' with {KeypointCount} template keypoints",
             Name, _kpTemplate.Length);
+
+        return Task.CompletedTask;
     }
 
     public DetectionResult Detect(Mat regionFrame)
