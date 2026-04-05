@@ -160,14 +160,10 @@
                                             </MudSelect>
                                         </MudItem>
                                         <MudItem xs="4">
-                                            <MudSelect T="GameEventType" Value="detector.EventType"
-                                                       ValueChanged="@((GameEventType v) => { detector.EventType = v; QueueSave(); })"
-                                                       Label="Event Type" Variant="Variant.Outlined" Dense="true">
-                                                @foreach (var et in Enum.GetValues<GameEventType>())
-                                                {
-                                                    <MudSelectItem Value="et">@et</MudSelectItem>
-                                                }
-                                            </MudSelect>
+                                            <MudTextField T="string" Value="detector.EventType"
+                                                          ValueChanged="@((string v) => { detector.EventType = v; QueueSave(); })"
+                                                          Label="Event Type" Variant="Variant.Outlined"
+                                                          HelperText="e.g. death, damage, kill" />
                                         </MudItem>
 
                                         @* Region *@
@@ -333,14 +329,9 @@
                                 var actionIdx = i;
                                 <tr>
                                     <td>
-                                        <MudSelect T="GameEventType" Value="action.EventType"
-                                                   ValueChanged="@((GameEventType v) => { action.EventType = v; QueueSave(); })"
-                                                   Variant="Variant.Text" Dense="true" DisableUnderLine="true">
-                                            @foreach (var et in Enum.GetValues<GameEventType>())
-                                            {
-                                                <MudSelectItem Value="et">@et</MudSelectItem>
-                                            }
-                                        </MudSelect>
+                                        <MudTextField T="string" Value="action.EventType"
+                                                      ValueChanged="@((string v) => { action.EventType = v; QueueSave(); })"
+                                                      Variant="Variant.Text" Dense="true" />
                                     </td>
                                     <td>
                                         <MudSelect T="ControlType" Value="action.ControlType"
@@ -490,7 +481,7 @@
             Name = $"Detector {(_profile!.Detectors.Count + 1)}",
             Backend = DetectorBackendType.OpenCvTemplate,
             Region = new NormalizedRegion { X = 0.1f, Y = 0.1f, Width = 0.2f, Height = 0.1f },
-            EventType = GameEventType.Damage,
+            EventType = "damage",
             _expanded = true
         });
         SyncRegionItems();
@@ -565,7 +556,7 @@
     {
         _profile?.Actions.Add(new ActionMapping
         {
-            EventType = GameEventType.Damage,
+            EventType = "damage",
             ControlType = ControlType.Shock,
             Intensity = 30,
             Duration = 500,

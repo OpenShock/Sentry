@@ -32,8 +32,23 @@ public sealed class ScreenCaptureService : IDisposable
     private int _sourceX;
     private int _sourceY;
 
-    /// <summary>Fired on the capture thread after each new frame is swapped in.</summary>
-    public event Action? OnNewFrame;
+    /// <summary>Fired on the capture thread after each new frame is swapped in.
+    /// Capture auto-starts on first subscriber and auto-stops when the last unsubscribes.</summary>
+    private event Action? _onNewFrame;
+    public event Action? OnNewFrame
+    {
+        add
+        {
+            _onNewFrame += value;
+            Start();
+        }
+        remove
+        {
+            _onNewFrame -= value;
+            if (_onNewFrame is null)
+                Stop();
+        }
+    }
 
     /// <summary>Incremented on every new frame. Consumers compare to detect new frames.</summary>
     public long FrameNumber { get; private set; }
@@ -199,57 +214,64 @@ public sealed class ScreenCaptureService : IDisposable
         _cts = null;
     }
 
-    private void CaptureLoop(CancellationToken ct)
+    private async Task CaptureLoop(CancellationToken ct)
     {
-        var frameSw = new Stopwatch();
-        var fpsSw = Stopwatch.StartNew();
+        var fpsStart = Stopwatch.GetTimestamp();
         var frameCount = 0;
+        var currentFps = TargetFps > 0 ? TargetFps : 60;
+        var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(1000.0 / currentFps));
 
-        while (!ct.IsCancellationRequested)
+        try
         {
-            var targetFrameTimeMs = TargetFps > 0 ? 1000.0 / TargetFps : 0;
-
-            frameSw.Restart();
-
-            try
+            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
             {
-                _graphics!.CopyFromScreen(_sourceX, _sourceY, 0, 0, new Size(_width, _height));
-                _captureBitmap!.ToMat(_backColor!);
-                Cv2.CvtColor(_backColor!, _backGray!, ColorConversionCodes.BGRA2GRAY);
-
-                lock (_swapLock)
+                // Recreate timer if TargetFps changed
+                var targetFps = TargetFps > 0 ? TargetFps : 60;
+                if (targetFps != currentFps)
                 {
-                    (_frontColor, _backColor) = (_backColor, _frontColor);
-                    (_frontGray, _backGray) = (_backGray, _frontGray);
-                    FrameNumber++;
+                    currentFps = targetFps;
+                    timer.Dispose();
+                    timer = new PeriodicTimer(TimeSpan.FromMilliseconds(1000.0 / currentFps));
                 }
 
-                OnNewFrame?.Invoke();
-            }
-            catch (Exception)
-            {
-                // GDI can throw if desktop is locked etc., just skip frame
-            }
+                var frameStart = Stopwatch.GetTimestamp();
 
-            frameSw.Stop();
-            CaptureMs = (float)frameSw.Elapsed.TotalMilliseconds;
+                try
+                {
+                    _graphics!.CopyFromScreen(_sourceX, _sourceY, 0, 0, new Size(_width, _height));
+                    _captureBitmap!.ToMat(_backColor!);
+                    Cv2.CvtColor(_backColor!, _backGray!, ColorConversionCodes.BGRA2GRAY);
 
-            // FPS counter
-            frameCount++;
-            if (fpsSw.ElapsedMilliseconds >= 1000)
-            {
-                CaptureFps = frameCount * 1000f / fpsSw.ElapsedMilliseconds;
-                frameCount = 0;
-                fpsSw.Restart();
-            }
+                    lock (_swapLock)
+                    {
+                        (_frontColor, _backColor) = (_backColor, _frontColor);
+                        (_frontGray, _backGray) = (_backGray, _frontGray);
+                        FrameNumber++;
+                    }
 
-            // FPS limiter — sleep remaining budget
-            var elapsed = frameSw.Elapsed.TotalMilliseconds;
-            if (targetFrameTimeMs > 0 && elapsed < targetFrameTimeMs)
-            {
-                var sleepMs = (int)(targetFrameTimeMs - elapsed);
-                if (sleepMs > 0) Thread.Sleep(sleepMs);
+                    _onNewFrame?.Invoke();
+                }
+                catch (Exception)
+                {
+                    // GDI can throw if desktop is locked etc., just skip frame
+                }
+
+                CaptureMs = (float)Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds;
+
+                // FPS counter
+                frameCount++;
+                var fpsElapsed = Stopwatch.GetElapsedTime(fpsStart);
+                if (fpsElapsed.TotalMilliseconds >= 1000)
+                {
+                    CaptureFps = frameCount * 1000f / (float)fpsElapsed.TotalMilliseconds;
+                    frameCount = 0;
+                    fpsStart = Stopwatch.GetTimestamp();
+                }
             }
+        }
+        finally
+        {
+            timer.Dispose();
         }
     }
 

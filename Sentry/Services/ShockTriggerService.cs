@@ -13,7 +13,7 @@ public sealed class ShockTriggerService
 {
     private readonly ILogger<ShockTriggerService> _logger;
     private readonly IOpenShockService _openShock;
-    private readonly ConcurrentDictionary<GameEventType, DateTime> _lastTriggered = new();
+    private readonly ConcurrentDictionary<string, DateTime> _lastTriggered = new();
 
     public ShockTriggerService(ILogger<ShockTriggerService> logger, IOpenShockService openShock)
     {
@@ -21,7 +21,7 @@ public sealed class ShockTriggerService
         _openShock = openShock;
     }
 
-    public async Task HandleDetection(GameEventType eventType, IReadOnlyList<ActionMapping> actions)
+    public async Task HandleDetection(string eventType, IReadOnlyList<ActionMapping> actions)
     {
         var mapping = actions.FirstOrDefault(a => a.EventType == eventType);
         if (mapping is null) return;

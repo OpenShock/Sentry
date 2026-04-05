@@ -22,11 +22,10 @@ public sealed class DetectionService : IDisposable
     private readonly GameProfileManager _profileManager;
     private readonly PreviewService _previewService;
 
-    private bool _running;
+    private CancellationTokenSource? _detectionCts;
     private readonly List<(IDetector Detector, DetectorConfig Config)> _activeDetectors = [];
     private GameProfile? _activeProfile;
-    private readonly ManualResetEventSlim _frameSignal = new(false);
-    private Thread? _detectionThread;
+    private readonly SemaphoreSlim _frameSignal = new(0, 1);
 
     // Per-region capture resources (used when PerRegionCapture is true)
     private readonly List<RegionCapture?> _regionCaptures = [];
@@ -35,8 +34,8 @@ public sealed class DetectionService : IDisposable
     private readonly List<RegionOverlay> _regionOverlayBuffer = [];
 
     // Detection performance tracking
-    private readonly Stopwatch _detectionSw = new();
-    private readonly Stopwatch _detectionFpsTimer = new();
+    private long _detectionFrameStart;
+    private long _detectionFpsStart;
     private int _detectionFrameCount;
 
     // Reusable per-frame buffers (pre-allocated, indexed by detector — no contention in parallel)
@@ -53,7 +52,7 @@ public sealed class DetectionService : IDisposable
     public int TargetFps { get; set; } = 30;
 
     // Observable state for UI
-    public bool IsRunning => _running;
+    public bool IsRunning => _detectionCts is not null && !_detectionCts.IsCancellationRequested;
     public string? ActiveProfileName { get; private set; }
     public GameProfile? ActiveProfile => _activeProfile;
     public float DetectionFps { get; private set; }
@@ -88,7 +87,7 @@ public sealed class DetectionService : IDisposable
 
     public async Task LoadProfile(string profileName)
     {
-        if (_running) Stop();
+        if (IsRunning) Stop();
         UnloadProfile();
 
         var profile = _profileManager.Load(profileName);
@@ -143,9 +142,10 @@ public sealed class DetectionService : IDisposable
             return Task.CompletedTask;
         }
 
-        _running = true;
-        _detectionFpsTimer.Restart();
+        _detectionFpsStart = Stopwatch.GetTimestamp();
         _detectionFrameCount = 0;
+        _detectionCts = new CancellationTokenSource();
+        var ct = _detectionCts.Token;
 
         // Pre-allocate per-detector buffers
         var count = _activeDetectors.Count;
@@ -157,16 +157,13 @@ public sealed class DetectionService : IDisposable
         if (PerRegionCapture)
         {
             AllocateRegionCaptures();
-            _detectionThread = new Thread(DetectionLoopPerRegion) { IsBackground = true, Name = "DetectionLoop" };
+            _ = Task.Run(() => DetectionLoopPerRegion(ct), ct);
         }
         else
         {
-            _screenCapture.Start();
             _screenCapture.OnNewFrame += SignalNewFrame;
-            _detectionThread = new Thread(DetectionLoopFullScreen) { IsBackground = true, Name = "DetectionLoop" };
+            _ = Task.Run(() => DetectionLoopFullScreen(ct), ct);
         }
-
-        _detectionThread.Start();
 
         _logger.LogInformation(
             "Starting detection for profile '{ProfileName}' ({Mode} mode, {Count} detectors)",
@@ -179,16 +176,19 @@ public sealed class DetectionService : IDisposable
     public void Stop()
     {
         _screenCapture.OnNewFrame -= SignalNewFrame;
-        _running = false;
-        _frameSignal.Set();
-        _detectionThread?.Join(timeout: TimeSpan.FromSeconds(2));
-        _detectionThread = null;
+        _detectionCts?.Cancel();
+        _detectionCts?.Dispose();
+        _detectionCts = null;
         FreeRegionCaptures();
         _logger.LogInformation("Detection stopped");
         OnStateChanged?.Invoke();
     }
 
-    private void SignalNewFrame() => _frameSignal.Set();
+    private void SignalNewFrame()
+    {
+        if (_frameSignal.CurrentCount == 0)
+            _frameSignal.Release();
+    }
 
     // ── Region capture allocation ──────────────────────────────────────
 
@@ -318,17 +318,21 @@ public sealed class DetectionService : IDisposable
     // ── Detection loops ────────────────────────────────────────────────
 
     /// <summary>Full-screen mode: waits on ScreenCaptureService frames, crops regions from the full buffer.</summary>
-    private void DetectionLoopFullScreen()
+    private async Task DetectionLoopFullScreen(CancellationToken ct)
     {
         var parallelDetect = _activeProfile!.ParallelDetection;
         var count = _activeDetectors.Count;
 
-        while (_running)
+        while (!ct.IsCancellationRequested)
         {
-            _frameSignal.Wait();
-            _frameSignal.Reset();
-
-            if (!_running) break;
+            try
+            {
+                await _frameSignal.WaitAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
 
             try
             {
@@ -336,7 +340,7 @@ public sealed class DetectionService : IDisposable
                 if (frame is null) continue;
                 var (_, grayFrame) = frame.Value;
 
-                _detectionSw.Restart();
+                _detectionFrameStart = Stopwatch.GetTimestamp();
 
                 // Phase: Detect (capture is shared via ScreenCaptureService)
                 if (parallelDetect)
@@ -348,6 +352,10 @@ public sealed class DetectionService : IDisposable
                 ProcessDetectionResults();
                 FinishDetectionFrame();
             }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in detection");
@@ -357,18 +365,26 @@ public sealed class DetectionService : IDisposable
 
     /// <summary>Per-region mode: captures only each detector's region directly via GDI. Own FPS limiter.</summary>
     [SuppressMessage("Interoperability", "CA1416:Validate platform compatibility")]
-    private void DetectionLoopPerRegion()
+    private async Task DetectionLoopPerRegion(CancellationToken ct)
     {
         var parallel = _activeProfile!.ParallelDetection;
         var count = _activeDetectors.Count;
+        var currentFps = TargetFps > 0 ? TargetFps : 60;
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(1000.0 / currentFps));
 
-        while (_running)
+        while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
         {
-            var targetFrameTimeMs = TargetFps > 0 ? 1000.0 / TargetFps : 0;
+            // Recreate timer if TargetFps changed
+            var targetFps = TargetFps > 0 ? TargetFps : 60;
+            if (targetFps != currentFps)
+            {
+                currentFps = targetFps;
+                timer.Period = TimeSpan.FromMilliseconds(1000.0 / currentFps);
+            }
 
             try
             {
-                _detectionSw.Restart();
+                _detectionFrameStart = Stopwatch.GetTimestamp();
 
                 // Capture + detect (each detector independently)
                 if (parallel)
@@ -379,14 +395,10 @@ public sealed class DetectionService : IDisposable
                 // Process results (always sequential — triggers, overlays, UI)
                 ProcessDetectionResults();
                 FinishDetectionFrame();
-
-                // FPS limiter
-                var elapsed = _detectionSw.Elapsed.TotalMilliseconds;
-                if (targetFrameTimeMs > 0 && elapsed < targetFrameTimeMs)
-                {
-                    var sleepMs = (int)(targetFrameTimeMs - elapsed);
-                    if (sleepMs > 0) Thread.Sleep(sleepMs);
-                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
             }
             catch (Exception ex)
             {
@@ -399,15 +411,15 @@ public sealed class DetectionService : IDisposable
 
     private void FinishDetectionFrame()
     {
-        _detectionSw.Stop();
-        DetectionMs = (float)_detectionSw.Elapsed.TotalMilliseconds;
+        DetectionMs = (float)Stopwatch.GetElapsedTime(_detectionFrameStart).TotalMilliseconds;
 
         _detectionFrameCount++;
-        if (_detectionFpsTimer.ElapsedMilliseconds >= 1000)
+        var fpsElapsed = Stopwatch.GetElapsedTime(_detectionFpsStart);
+        if (fpsElapsed.TotalMilliseconds >= 1000)
         {
-            DetectionFps = _detectionFrameCount * 1000f / _detectionFpsTimer.ElapsedMilliseconds;
+            DetectionFps = _detectionFrameCount * 1000f / (float)fpsElapsed.TotalMilliseconds;
             _detectionFrameCount = 0;
-            _detectionFpsTimer.Restart();
+            _detectionFpsStart = Stopwatch.GetTimestamp();
             OnStateChanged?.Invoke();
         }
     }
@@ -425,7 +437,7 @@ public sealed class DetectionService : IDisposable
 
     private void UpdatePreviewOverlays()
     {
-        var hasResults = _detectorResults.Length == _activeDetectors.Count && _running;
+        var hasResults = _detectorResults.Length == _activeDetectors.Count && IsRunning;
 
         // Rebuild buffer only when detector count changes
         if (_regionOverlayBuffer.Count != _activeDetectors.Count)
@@ -466,7 +478,7 @@ public sealed class DetectionService : IDisposable
 
     // ── Logging ────────────────────────────────────────────────────────
 
-    private void AddLogEntry(string detectorName, GameEventType eventType, float confidence)
+    private void AddLogEntry(string detectorName, string eventType, float confidence)
     {
         DetectionLog.Enqueue(new DetectionLogEntry
         {
@@ -500,7 +512,7 @@ public sealed class DetectionLogEntry
 {
     public DateTime Timestamp { get; init; }
     public required string DetectorName { get; init; }
-    public GameEventType EventType { get; init; }
+    public required string EventType { get; init; }
     public float Confidence { get; init; }
 }
 

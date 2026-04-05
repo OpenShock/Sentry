@@ -24,12 +24,6 @@
                         Detect: @totalDetect.ToString("F1").PadLeft(6) ms
                     </MudChip>
                 }
-                else if (!DetectionService.PerRegionCapture && ScreenCapture.IsRunning)
-                {
-                    <MudChip T="string" Color="Color.Info" Size="Size.Small" Style="font-family: monospace;">
-                        Capture: @ScreenCapture.CaptureFps.ToString("F1").PadLeft(5) FPS / @ScreenCapture.CaptureMs.ToString("F1").PadLeft(6) ms
-                    </MudChip>
-                }
                 <MudChip T="string" Color="Color.Secondary" Size="Size.Small" Style="font-family: monospace;">
                     Loop: @DetectionService.DetectionFps.ToString("F1").PadLeft(5) FPS / @DetectionService.DetectionMs.ToString("F1").PadLeft(6) ms
                 </MudChip>
@@ -37,6 +31,12 @@
             else
             {
                 <MudChip T="string" Color="Color.Default" Size="Size.Small">Stopped</MudChip>
+            }
+            @if (ScreenCapture.IsRunning)
+            {
+                <MudChip T="string" Color="Color.Info" Size="Size.Small" Icon="@Icons.Material.Filled.Videocam" Style="font-family: monospace;">
+                    Capture: @ScreenCapture.CaptureFps.ToString("F1") FPS / @ScreenCapture.CaptureMs.ToString("F1") ms
+                </MudChip>
             }
             @if (DetectionService.ActiveProfileName is not null)
             {
@@ -107,7 +107,12 @@
             </CardHeaderContent>
         </MudCardHeader>
         <MudCardContent Style="padding: 0; overflow: hidden; background: #111;">
-            @if (_previewDataUri is not null)
+            @if (_previewLive && PreviewService.StreamUrl is not null)
+            {
+                <img src="@PreviewService.StreamUrl" alt="Screen Preview"
+                     style="width: 100%; display: block; image-rendering: auto;" />
+            }
+            else if (_previewDataUri is not null)
             {
                 <img src="@_previewDataUri" alt="Screen Preview"
                      style="width: 100%; display: block; image-rendering: auto;" />
@@ -154,7 +159,7 @@
                         @{ var idx = 0; }
                         @foreach (var d in DetectionService.ActiveProfile.Detectors)
                         {
-                            var color = _regionColors[idx % _regionColors.Length];
+                            var color = RegionColors[idx % RegionColors.Length];
                             var timing = DetectionService.IsRunning && DetectionService.PerRegionCapture
                                          && idx < DetectionService.DetectorTimings.Length
                                 ? DetectionService.DetectorTimings[idx]
@@ -213,11 +218,7 @@
                             <tr>
                                 <td>@entry.Timestamp.ToString("HH:mm:ss.fff")</td>
                                 <td>@entry.DetectorName</td>
-                                <td>
-                                    <MudChip T="string" Size="Size.Small" Color="@GetEventColor(entry.EventType)">
-                                        @entry.EventType
-                                    </MudChip>
-                                </td>
+                                <td>@entry.EventType</td>
                                 <td>@entry.Confidence.ToString("P1")</td>
                             </tr>
                         }
@@ -246,14 +247,14 @@
     private string? _selectedProfile;
     private string? _previewDataUri;
     private bool _previewLive;
-    private float _previewScale = 0.35f;
-    private readonly ManualResetEventSlim _previewSignal = new(false);
-    private Thread? _previewThread;
+    private float _previewScale = 1f;
+    private readonly SemaphoreSlim _previewSignal = new(0, 1);
+    private CancellationTokenSource? _previewCts;
     private List<DetectionLogEntry> _logEntries = [];
     private string? _statusMessage;
     private Severity _statusSeverity = Severity.Info;
 
-    private static readonly string[] _regionColors = ["#00c8ff", "#00ff80", "#8000ff", "#ff8000", "#ff0080"];
+    private static readonly string[] RegionColors = ["#00c8ff", "#00ff80", "#8000ff", "#ff8000", "#ff0080"];
 
     protected override void OnInitialized()
     {
@@ -300,26 +301,26 @@
         DetectionService.Stop();
     }
 
-    private void TogglePreview()
+    private async Task TogglePreview()
     {
         _previewLive = !_previewLive;
         if (_previewLive)
         {
             InitializeCapture();
             ScreenCapture.TargetFps = ModuleConfig.Config.TargetCaptureFps;
-            if (!ScreenCapture.IsRunning)
-                ScreenCapture.Start();
             PreviewService.PreviewScale = _previewScale;
+            PreviewService.StartStream();
             ScreenCapture.OnNewFrame += SignalPreviewFrame;
-            _previewThread = new Thread(PreviewLoop) { IsBackground = true, Name = "PreviewLoop" };
-            _previewThread.Start();
+            _previewCts = new CancellationTokenSource();
+            _ = Task.Run(() => PreviewLoop(_previewCts.Token));
         }
         else
         {
             ScreenCapture.OnNewFrame -= SignalPreviewFrame;
-            _previewSignal.Set(); // Unblock so thread can exit
-            _previewThread?.Join(timeout: TimeSpan.FromSeconds(2));
-            _previewThread = null;
+            if(_previewCts is not null ) await _previewCts.CancelAsync();
+            _previewCts?.Dispose();
+            _previewCts = null;
+            await PreviewService.StopStream();
         }
     }
 
@@ -331,28 +332,25 @@
         StateHasChanged();
     }
 
-    private void SignalPreviewFrame() => _previewSignal.Set();
-
-    private void PreviewLoop()
+    private void SignalPreviewFrame()
     {
-        while (_previewLive)
+        // Release only if the semaphore is at 0 (avoid SemaphoreFullException)
+        if (_previewSignal.CurrentCount == 0)
+            _previewSignal.Release();
+    }
+
+    private async Task PreviewLoop(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
         {
-            _previewSignal.Wait();
-            _previewSignal.Reset();
-
-            if (!_previewLive) break;
-
             try
             {
-                var dataUri = PreviewService.CapturePreviewFrame();
-                var logEntries = DetectionService.DetectionLog.Reverse().Take(50).ToList();
-
-                InvokeAsync(() =>
-                {
-                    _previewDataUri = dataUri;
-                    _logEntries = logEntries;
-                    StateHasChanged();
-                });
+                await _previewSignal.WaitAsync(ct).ConfigureAwait(false);
+                await PreviewService.RenderAndBroadcastFrame().ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
             }
             catch
             {
@@ -406,22 +404,13 @@
         _ => Color.Default
     };
 
-    private static Color GetEventColor(GameEventType e) => e switch
-    {
-        GameEventType.Death => Color.Error,
-        GameEventType.Damage => Color.Warning,
-        GameEventType.Kill => Color.Success,
-        GameEventType.Hit => Color.Info,
-        _ => Color.Default
-    };
-
     public void Dispose()
     {
         DetectionService.OnStateChanged -= OnDetectionStateChanged;
         ScreenCapture.OnNewFrame -= SignalPreviewFrame;
         _previewLive = false;
-        _previewSignal.Set();
-        _previewThread?.Join(timeout: TimeSpan.FromSeconds(2));
+        _previewCts?.Cancel();
+        _previewCts?.Dispose();
         _previewSignal.Dispose();
     }
 }
