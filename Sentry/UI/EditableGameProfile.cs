@@ -4,8 +4,9 @@ using OpenShock.Sentry.Models;
 namespace OpenShock.Sentry.UI;
 
 /// <summary>
-/// UI-friendly version of GameProfile where detector settings use string dictionary
-/// instead of JsonElement, making two-way binding straightforward.
+/// UI-friendly version of GameProfile. Detector settings are deserialized from
+/// the stored <see cref="JsonElement"/> into typed POCOs so the UI can two-way bind
+/// to them, then serialized back when saving.
 /// </summary>
 public sealed class EditableGameProfile
 {
@@ -39,27 +40,55 @@ public sealed class EditableGameProfile
 
 public sealed class EditableDetectorConfig
 {
+    internal static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
+
     public string Name { get; set; } = "";
-    public DetectorBackendType Backend { get; set; }
     public NormalizedRegion Region { get; set; } = NormalizedRegion.FullScreen;
     public string EventType { get; set; } = "";
     public bool InvertMatch { get; set; }
-    public Dictionary<string, string> RawSettings { get; set; } = new();
+    public bool RequireClear { get; set; }
+
+    /// <summary>
+    /// Typed settings POCO for UI binding. Type is determined by <see cref="Backend"/>.
+    /// </summary>
+    public object Settings { get; private set; } = new OpenCvTemplateSettings();
+
+    private DetectorBackendType _backend;
+    public DetectorBackendType Backend
+    {
+        get => _backend;
+        set
+        {
+            if (_backend == value && Settings.GetType() == GetSettingsType(value)) return;
+            _backend = value;
+            Settings = CreateDefaultSettings(value);
+        }
+    }
 
     // UI state (not serialized)
     internal bool _expanded;
 
-    public static EditableDetectorConfig From(DetectorConfig config) => new()
+    public static EditableDetectorConfig From(DetectorConfig config)
     {
-        Name = config.Name,
-        Backend = config.Backend,
-        Region = config.Region,
-        EventType = config.EventType,
-        InvertMatch = config.InvertMatch,
-        RawSettings = config.Settings.ToDictionary(
-            kv => kv.Key,
-            kv => kv.Value.ToString())
-    };
+        var edit = new EditableDetectorConfig
+        {
+            Name = config.Name,
+            _backend = config.Backend,
+            Region = config.Region,
+            EventType = config.EventType,
+            InvertMatch = config.InvertMatch,
+            RequireClear = config.RequireClear
+        };
+        edit.Settings = config.Settings.ValueKind == JsonValueKind.Object
+            ? config.Settings.Deserialize(GetSettingsType(config.Backend), JsonOptions)
+              ?? CreateDefaultSettings(config.Backend)
+            : CreateDefaultSettings(config.Backend);
+        return edit;
+    }
 
     public DetectorConfig ToDetectorConfig() => new()
     {
@@ -68,16 +97,25 @@ public sealed class EditableDetectorConfig
         Region = Region,
         EventType = EventType,
         InvertMatch = InvertMatch,
-        Settings = RawSettings.ToDictionary(
-            kv => kv.Key,
-            kv => JsonSerializer.SerializeToElement(ParseValue(kv.Value)))
+        RequireClear = RequireClear,
+        Settings = JsonSerializer.SerializeToElement(Settings, Settings.GetType(), JsonOptions)
     };
 
-    private static object ParseValue(string value)
+    private static object CreateDefaultSettings(DetectorBackendType backend) => backend switch
     {
-        if (float.TryParse(value, out var f)) return f;
-        if (int.TryParse(value, out var i)) return i;
-        if (bool.TryParse(value, out var b)) return b;
-        return value;
-    }
+        DetectorBackendType.OpenCvTemplate => new OpenCvTemplateSettings(),
+        DetectorBackendType.OpenCvSift => new OpenCvSiftSettings(),
+        DetectorBackendType.Ocr => new OcrSettings(),
+        DetectorBackendType.Onnx => new OnnxSettings(),
+        _ => new OpenCvTemplateSettings()
+    };
+
+    private static Type GetSettingsType(DetectorBackendType backend) => backend switch
+    {
+        DetectorBackendType.OpenCvTemplate => typeof(OpenCvTemplateSettings),
+        DetectorBackendType.OpenCvSift => typeof(OpenCvSiftSettings),
+        DetectorBackendType.Ocr => typeof(OcrSettings),
+        DetectorBackendType.Onnx => typeof(OnnxSettings),
+        _ => typeof(OpenCvTemplateSettings)
+    };
 }

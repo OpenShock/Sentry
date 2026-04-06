@@ -32,18 +32,20 @@ public sealed class GameProfileManager : IDisposable
         _saveTimer = new Timer(_ => _ = SaveNowAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
+    private string ProfilePath(string profileName) =>
+        Path.Combine(_profilesDir, profileName, "profile.json");
+
     public IReadOnlyList<string> ListProfiles()
     {
-        return Directory.GetFiles(_profilesDir, "*.json")
-            .Select(Path.GetFileNameWithoutExtension)
-            .Where(n => n is not null)
-            .Cast<string>()
+        return Directory.GetDirectories(_profilesDir)
+            .Where(d => File.Exists(Path.Combine(d, "profile.json")))
+            .Select(d => Path.GetFileName(d)!)
             .ToList();
     }
 
     public GameProfile? Load(string profileName)
     {
-        var path = Path.Combine(_profilesDir, $"{profileName}.json");
+        var path = ProfilePath(profileName);
         if (!File.Exists(path))
         {
             _logger.LogWarning("Profile '{ProfileName}' not found at {Path}", profileName, path);
@@ -64,10 +66,50 @@ public sealed class GameProfileManager : IDisposable
 
     public void Save(string profileName, GameProfile profile)
     {
-        var path = Path.Combine(_profilesDir, $"{profileName}.json");
+        var path = ProfilePath(profileName);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var json = JsonSerializer.Serialize(profile, JsonOptions);
         File.WriteAllText(path, json);
         _logger.LogInformation("Saved profile '{ProfileName}' to {Path}", profileName, path);
+        CleanupProfileAssets(profileName, profile);
+    }
+
+    /// <summary>
+    /// Removes any file in the profile's base directory that isn't referenced by
+    /// a detector setting. Referenced = some setting string value matches the file
+    /// name or its full path (case-insensitive).
+    /// </summary>
+    private void CleanupProfileAssets(string profileName, GameProfile profile)
+    {
+        var baseDir = Path.Combine(_profilesDir, profileName, "assets");
+        if (!Directory.Exists(baseDir)) return;
+
+        var referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var det in profile.Detectors)
+        {
+            foreach (var asset in GetReferencedAssets(det))
+            {
+                if (string.IsNullOrEmpty(asset)) continue;
+                var resolved = Path.IsPathRooted(asset) ? asset : Path.Combine(baseDir, asset);
+                try { referenced.Add(Path.GetFullPath(resolved)); }
+                catch { /* ignore malformed paths */ }
+            }
+        }
+
+        foreach (var file in Directory.EnumerateFiles(baseDir))
+        {
+            var full = Path.GetFullPath(file);
+            if (referenced.Contains(full)) continue;
+            try
+            {
+                File.Delete(file);
+                _logger.LogInformation("Removed unreferenced asset '{File}' from profile '{ProfileName}'", Path.GetFileName(file), profileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete unreferenced asset '{File}'", file);
+            }
+        }
     }
 
     /// <summary>
@@ -111,17 +153,32 @@ public sealed class GameProfileManager : IDisposable
 
     public void Delete(string profileName)
     {
-        var path = Path.Combine(_profilesDir, $"{profileName}.json");
-        if (File.Exists(path))
+        var dir = Path.Combine(_profilesDir, profileName);
+        if (Directory.Exists(dir))
         {
-            File.Delete(path);
+            Directory.Delete(dir, recursive: true);
             _logger.LogInformation("Deleted profile '{ProfileName}'", profileName);
         }
     }
 
+    private static IEnumerable<string> GetReferencedAssets(DetectorConfig det)
+    {
+        if (det.Settings.ValueKind != JsonValueKind.Object) return [];
+        return det.Backend switch
+        {
+            DetectorBackendType.OpenCvTemplate =>
+                [det.Settings.Deserialize<OpenCvTemplateSettings>(JsonOptions)?.TemplatePath ?? ""],
+            DetectorBackendType.OpenCvSift =>
+                [det.Settings.Deserialize<OpenCvSiftSettings>(JsonOptions)?.TemplatePath ?? ""],
+            DetectorBackendType.Onnx =>
+                [det.Settings.Deserialize<OnnxSettings>(JsonOptions)?.ModelPath ?? ""],
+            _ => []
+        };
+    }
+
     public string GetProfileBaseDir(string profileName)
     {
-        var dir = Path.Combine(_profilesDir, profileName);
+        var dir = Path.Combine(_profilesDir, profileName, "assets");
         Directory.CreateDirectory(dir);
         return dir;
     }

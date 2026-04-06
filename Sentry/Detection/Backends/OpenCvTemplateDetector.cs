@@ -29,10 +29,13 @@ public sealed class OpenCvTemplateDetector : IDetector
     {
         Name = config.Name;
 
-        if (!config.Settings.TryGetValue("templatePath", out var templatePathEl))
+        var settings = config.Settings.Deserialize<OpenCvTemplateSettings>(DetectorJsonOptions.Default)
+            ?? throw new InvalidOperationException($"Detector '{Name}' missing OpenCvTemplate settings");
+
+        if (string.IsNullOrEmpty(settings.TemplatePath))
             throw new InvalidOperationException($"Detector '{Name}' missing required setting 'templatePath'");
 
-        var templatePath = templatePathEl.GetString()!;
+        var templatePath = settings.TemplatePath;
         if (!Path.IsPathRooted(templatePath))
             templatePath = Path.Combine(profileBaseDir, templatePath);
 
@@ -41,9 +44,7 @@ public sealed class OpenCvTemplateDetector : IDetector
             throw new FileNotFoundException($"Template image not found or empty: {templatePath}");
 
         _invertMatch = config.InvertMatch;
-
-        if (config.Settings.TryGetValue("threshold", out var thresholdEl))
-            _threshold = thresholdEl.GetSingle();
+        _threshold = settings.Threshold;
 
         _logger.LogInformation("Initialized template detector '{Name}' with template {Path}, threshold {Threshold}",
             Name, templatePath, _threshold);

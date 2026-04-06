@@ -11,12 +11,11 @@
                 <MudChip T="string" Color="Color.Success" Size="Size.Small" Icon="@Icons.Material.Filled.FiberManualRecord">
                     Running (@(DetectionService.PerRegionCapture ? "per-region" : "full-screen"))
                 </MudChip>
-                @if (DetectionService.PerRegionCapture && DetectionService.DetectorTimings.Length > 0)
+                @if (DetectionService.PerRegionCapture && DetectionService.Detectors.Count > 0)
                 {
-                    var timingsSpan = DetectionService.DetectorTimings;
                     var totalCapture = 0f;
                     var totalDetect = 0f;
-                    foreach (var t in timingsSpan) { totalCapture += t.CaptureMs; totalDetect += t.DetectMs; }
+                    foreach (var d in DetectionService.Detectors) { totalCapture += d.CaptureMs; totalDetect += d.DetectMs; }
                     <MudChip T="string" Color="Color.Info" Size="Size.Small" Style="font-family: monospace;">
                         Capture: @totalCapture.ToString("F1").PadLeft(6) ms
                     </MudChip>
@@ -84,6 +83,39 @@
         </MudCardContent>
     </MudCard>
 
+    @* Global Action Limits *@
+    <MudCard Dense="true">
+        <MudCardContent Class="py-2">
+            <MudStack Row="true" Spacing="4" AlignItems="AlignItems.Center">
+                <MudText Typo="Typo.caption" Style="min-width: 90px;">Intensity</MudText>
+                <MudText Typo="Typo.caption" Style="font-family: monospace; min-width: 28px; text-align: right;">@ModuleConfig.Config.MinIntensity</MudText>
+                <MudSlider T="int" Min="1" Max="100"
+                           Value="ModuleConfig.Config.MinIntensity"
+                           ValueChanged="@((int v) => OnLimitChanged(() => ModuleConfig.Config.MinIntensity = (byte)v))"
+                           Style="flex: 1;" />
+                <MudSlider T="int" Min="1" Max="100"
+                           Value="ModuleConfig.Config.MaxIntensity"
+                           ValueChanged="@((int v) => OnLimitChanged(() => ModuleConfig.Config.MaxIntensity = (byte)v))"
+                           Style="flex: 1;" />
+                <MudText Typo="Typo.caption" Style="font-family: monospace; min-width: 28px;">@ModuleConfig.Config.MaxIntensity</MudText>
+
+                <MudDivider Vertical="true" FlexItem="true" />
+
+                <MudText Typo="Typo.caption" Style="min-width: 90px;">Duration (ms)</MudText>
+                <MudText Typo="Typo.caption" Style="font-family: monospace; min-width: 44px; text-align: right;">@ModuleConfig.Config.MinDuration</MudText>
+                <MudSlider T="int" Min="300" Max="30000" Step="100"
+                           Value="ModuleConfig.Config.MinDuration"
+                           ValueChanged="@((int v) => OnLimitChanged(() => ModuleConfig.Config.MinDuration = (ushort)v))"
+                           Style="flex: 1;" />
+                <MudSlider T="int" Min="300" Max="30000" Step="100"
+                           Value="ModuleConfig.Config.MaxDuration"
+                           ValueChanged="@((int v) => OnLimitChanged(() => ModuleConfig.Config.MaxDuration = (ushort)v))"
+                           Style="flex: 1;" />
+                <MudText Typo="Typo.caption" Style="font-family: monospace; min-width: 44px;">@ModuleConfig.Config.MaxDuration</MudText>
+            </MudStack>
+        </MudCardContent>
+    </MudCard>
+
     @* Live Preview *@
     <MudCard>
         <MudCardHeader>
@@ -129,7 +161,7 @@
     </MudCard>
 
     @* Detection Regions *@
-    @if (DetectionService.ActiveProfile is not null)
+    @if (DetectionService.Detectors.Count > 0)
     {
         <MudCard>
             <MudCardHeader>
@@ -157,25 +189,21 @@
                     </thead>
                     <tbody>
                         @{ var idx = 0; }
-                        @foreach (var d in DetectionService.ActiveProfile.Detectors)
+                        @foreach (var d in DetectionService.Detectors)
                         {
                             var color = RegionColors[idx % RegionColors.Length];
-                            var timing = DetectionService.IsRunning && DetectionService.PerRegionCapture
-                                         && idx < DetectionService.DetectorTimings.Length
-                                ? DetectionService.DetectorTimings[idx]
-                                : (DetectorTiming?)null;
                             <tr>
                                 <td><div style="width:14px; height:14px; border-radius:3px; background:@color;"></div></td>
-                                <td>@d.Name</td>
-                                <td><MudChip T="string" Size="Size.Small" Color="@GetBackendColor(d.Backend)">@d.Backend</MudChip></td>
-                                <td>@d.EventType</td>
-                                <td><code>@FormatRegion(d.Region)</code></td>
-                                <td>@(d.InvertMatch ? "Yes" : "")</td>
+                                <td>@d.Config.Name</td>
+                                <td><MudChip T="string" Size="Size.Small" Color="@GetBackendColor(d.Config.Backend)">@d.Config.Backend</MudChip></td>
+                                <td>@d.Config.EventType</td>
+                                <td><code>@FormatRegion(d.Config.Region)</code></td>
+                                <td>@(d.Config.InvertMatch ? "Yes" : "")</td>
                                 @if (DetectionService.IsRunning && DetectionService.PerRegionCapture)
                                 {
-                                    <td style="font-family: monospace; text-align: right; white-space: pre;">@(timing?.CaptureMs.ToString("F2").PadLeft(7) ?? "     —") ms</td>
-                                    <td style="font-family: monospace; text-align: right; white-space: pre;">@(timing?.DetectMs.ToString("F2").PadLeft(7) ?? "     —") ms</td>
-                                    <td style="font-family: monospace; text-align: right; white-space: pre;">@(timing?.TotalMs.ToString("F2").PadLeft(7) ?? "     —") ms</td>
+                                    <td style="font-family: monospace; text-align: right; white-space: pre;">@d.CaptureMs.ToString("F2").PadLeft(7) ms</td>
+                                    <td style="font-family: monospace; text-align: right; white-space: pre;">@d.DetectMs.ToString("F2").PadLeft(7) ms</td>
+                                    <td style="font-family: monospace; text-align: right; white-space: pre;">@d.TotalMs.ToString("F2").PadLeft(7) ms</td>
                                 }
                             </tr>
                             idx++;
@@ -250,6 +278,7 @@
     private float _previewScale = 1f;
     private readonly SemaphoreSlim _previewSignal = new(0, 1);
     private CancellationTokenSource? _previewCts;
+    private System.Threading.Timer? _statsTimer;
     private List<DetectionLogEntry> _logEntries = [];
     private string? _statusMessage;
     private Severity _statusSeverity = Severity.Info;
@@ -267,6 +296,10 @@
             _selectedProfile = _profiles[0];
 
         DetectionService.OnStateChanged += OnDetectionStateChanged;
+
+        // Periodic refresh for header stat chips (capture FPS, etc.)
+        _statsTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged),
+            null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
 
     private async Task LoadProfile()
@@ -296,9 +329,9 @@
         catch (Exception ex) { SetStatus($"Start failed: {ex.Message}", Severity.Error); }
     }
 
-    private void StopDetection()
+    private async Task StopDetection()
     {
-        DetectionService.Stop();
+        await DetectionService.StopAsync();
     }
 
     private async Task TogglePreview()
@@ -392,6 +425,15 @@
 
     private void SetStatus(string msg, Severity sev) { _statusMessage = msg; _statusSeverity = sev; }
 
+    private void OnLimitChanged(Action apply)
+    {
+        apply();
+        var cfg = ModuleConfig.Config;
+        if (cfg.MaxIntensity < cfg.MinIntensity) cfg.MaxIntensity = cfg.MinIntensity;
+        if (cfg.MaxDuration < cfg.MinDuration) cfg.MaxDuration = cfg.MinDuration;
+        ModuleConfig.SaveDeferred();
+    }
+
     private static string FormatRegion(NormalizedRegion r) =>
         $"({r.X:F2}, {r.Y:F2}) {r.Width:F2}x{r.Height:F2}";
 
@@ -412,5 +454,6 @@
         _previewCts?.Cancel();
         _previewCts?.Dispose();
         _previewSignal.Dispose();
+        _statsTimer?.Dispose();
     }
 }

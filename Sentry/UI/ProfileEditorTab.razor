@@ -1,6 +1,7 @@
 @using OpenShock.Desktop.ModuleBase.Models
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.JSInterop
+@using System.IO.Compression
 @using System.Text.Json
 @implements IDisposable
 
@@ -35,7 +36,7 @@
                            StartIcon="@Icons.Material.Filled.FileDownload">
                     Export
                 </MudButton>
-                <MudFileUpload T="IBrowserFile" Accept=".json" FilesChanged="ImportProfile"
+                <MudFileUpload T="IBrowserFile" Accept=".sentryprofile,.zip,.json" FilesChanged="ImportProfile"
                                MaximumFileCount="1" Style="margin: 0;">
                     <ActivatorContent>
                         <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
@@ -197,83 +198,106 @@
                                                              Min="0f" Max="1f" Step="0.01f" Format="F2" />
                                         </MudItem>
 
-                                        <MudItem xs="12">
+                                        <MudItem xs="6">
                                             <MudSwitch T="bool" Value="detector.InvertMatch"
                                                        ValueChanged="@((bool v) => { detector.InvertMatch = v; QueueSave(); })"
                                                        Label="Invert Match (trigger when NOT detected)" Color="Color.Warning" />
+                                        </MudItem>
+                                        <MudItem xs="6">
+                                            <MudSwitch T="bool" Value="detector.RequireClear"
+                                                       ValueChanged="@((bool v) => { detector.RequireClear = v; QueueSave(); })"
+                                                       Label="Require Clear (must stop matching before re-triggering)" Color="Color.Info" />
                                         </MudItem>
 
                                         @* Backend-specific settings *@
                                         <MudItem xs="12">
                                             <MudText Typo="Typo.subtitle2" Class="mb-1">Backend Settings</MudText>
-                                            @switch (detector.Backend)
+                                            @switch (detector.Settings)
                                             {
-                                                case DetectorBackendType.OpenCvTemplate:
-                                                case DetectorBackendType.OpenCvSift:
+                                                case OpenCvTemplateSettings tmpl:
                                                     <MudGrid Spacing="2">
                                                         <MudItem xs="8">
-                                                            <MudTextField Value="@(GetSetting(detector, KeyTemplatePath))"
-                                                                          ValueChanged="@((string v) => SetSetting(detector, KeyTemplatePath, v))"
-                                                                          Label="Template Image Path"
-                                                                          Variant="Variant.Outlined"
-                                                                          HelperText="Relative to profile directory or absolute path" />
+                                                            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                                                <MudTextField Value="tmpl.TemplatePath"
+                                                                              ValueChanged="@((string v) => { tmpl.TemplatePath = v; QueueSave(); })"
+                                                                              Label="Template Image"
+                                                                              Variant="Variant.Outlined"
+                                                                              HelperText="Relative to profile assets dir or absolute path" />
+                                                                <MudFileUpload T="IBrowserFile" Accept=".png,.jpg,.jpeg,.bmp"
+                                                                               FilesChanged="@(f => ImportTemplateImage(detector, f))"
+                                                                               MaximumFileCount="1">
+                                                                    <ActivatorContent>
+                                                                        <MudIconButton Icon="@Icons.Material.Filled.Image"
+                                                                                       Color="Color.Primary" Size="Size.Small"
+                                                                                       Title="Pick template image" />
+                                                                    </ActivatorContent>
+                                                                </MudFileUpload>
+                                                            </MudStack>
                                                         </MudItem>
                                                         <MudItem xs="4">
-                                                            <MudNumericField T="float"
-                                                                             Value="@(GetSettingFloat(detector, KeyThreshold, 0.8f))"
-                                                                             ValueChanged="@((float v) => SetSettingFloat(detector, KeyThreshold, v))"
-                                                                             Label="Threshold"
-                                                                             Variant="Variant.Outlined"
+                                                            <MudNumericField T="float" Value="tmpl.Threshold"
+                                                                             ValueChanged="@((float v) => { tmpl.Threshold = v; QueueSave(); })"
+                                                                             Label="Threshold" Variant="Variant.Outlined"
                                                                              Min="0f" Max="1f" Step="0.05f" Format="F2" />
                                                         </MudItem>
-                                                        @if (detector.Backend == DetectorBackendType.OpenCvSift)
-                                                        {
-                                                            <MudItem xs="6">
-                                                                <MudNumericField T="float"
-                                                                                 Value="@(GetSettingFloat(detector, KeyRatioThreshold, 0.5f))"
-                                                                                 ValueChanged="@((float v) => SetSettingFloat(detector, KeyRatioThreshold, v))"
-                                                                                 Label="Lowe's Ratio Threshold"
-                                                                                 Variant="Variant.Outlined"
-                                                                                 Min="0.1f" Max="0.9f" Step="0.05f" Format="F2" />
-                                                            </MudItem>
-                                                            <MudItem xs="6">
-                                                                <MudNumericField T="int"
-                                                                                 Value="@(GetSettingInt(detector, KeyMinGoodMatches, 8))"
-                                                                                 ValueChanged="@((int v) => SetSettingInt(detector, KeyMinGoodMatches, v))"
-                                                                                 Label="Min Good Matches"
-                                                                                 Variant="Variant.Outlined"
-                                                                                 Min="3" Max="50" />
-                                                            </MudItem>
-                                                        }
                                                     </MudGrid>
                                                     break;
-                                                case DetectorBackendType.Ocr:
-                                                    <MudTextField Value="@(GetSetting(detector, KeyPattern))"
-                                                                  ValueChanged="@((string v) => SetSetting(detector, KeyPattern, v))"
-                                                                  Label="Regex Pattern"
-                                                                  Variant="Variant.Outlined"
+                                                case OpenCvSiftSettings sift:
+                                                    <MudGrid Spacing="2">
+                                                        <MudItem xs="8">
+                                                            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                                                <MudTextField Value="sift.TemplatePath"
+                                                                              ValueChanged="@((string v) => { sift.TemplatePath = v; QueueSave(); })"
+                                                                              Label="Template Image"
+                                                                              Variant="Variant.Outlined"
+                                                                              HelperText="Relative to profile assets dir or absolute path" />
+                                                                <MudFileUpload T="IBrowserFile" Accept=".png,.jpg,.jpeg,.bmp"
+                                                                               FilesChanged="@(f => ImportTemplateImage(detector, f))"
+                                                                               MaximumFileCount="1">
+                                                                    <ActivatorContent>
+                                                                        <MudIconButton Icon="@Icons.Material.Filled.Image"
+                                                                                       Color="Color.Primary" Size="Size.Small"
+                                                                                       Title="Pick template image" />
+                                                                    </ActivatorContent>
+                                                                </MudFileUpload>
+                                                            </MudStack>
+                                                        </MudItem>
+                                                        <MudItem xs="6">
+                                                            <MudNumericField T="float" Value="sift.RatioThreshold"
+                                                                             ValueChanged="@((float v) => { sift.RatioThreshold = v; QueueSave(); })"
+                                                                             Label="Lowe's Ratio Threshold" Variant="Variant.Outlined"
+                                                                             Min="0.1f" Max="0.9f" Step="0.05f" Format="F2" />
+                                                        </MudItem>
+                                                        <MudItem xs="6">
+                                                            <MudNumericField T="int" Value="sift.MinGoodMatches"
+                                                                             ValueChanged="@((int v) => { sift.MinGoodMatches = v; QueueSave(); })"
+                                                                             Label="Min Good Matches" Variant="Variant.Outlined"
+                                                                             Min="3" Max="50" />
+                                                        </MudItem>
+                                                    </MudGrid>
+                                                    break;
+                                                case OcrSettings ocr:
+                                                    <MudTextField Value="ocr.Pattern"
+                                                                  ValueChanged="@((string v) => { ocr.Pattern = v; QueueSave(); })"
+                                                                  Label="Regex Pattern" Variant="Variant.Outlined"
                                                                   HelperText="e.g. (?i)you died|killed in action" />
                                                     break;
-                                                case DetectorBackendType.Onnx:
+                                                case OnnxSettings onnx:
                                                     <MudGrid Spacing="2">
                                                         <MudItem xs="6">
-                                                            <MudTextField Value="@(GetSetting(detector, KeyModelPath))"
-                                                                          ValueChanged="@((string v) => SetSetting(detector, KeyModelPath, v))"
-                                                                          Label="Model Path (.onnx)"
-                                                                          Variant="Variant.Outlined" />
+                                                            <MudTextField Value="onnx.ModelPath"
+                                                                          ValueChanged="@((string v) => { onnx.ModelPath = v; QueueSave(); })"
+                                                                          Label="Model Path (.onnx)" Variant="Variant.Outlined" />
                                                         </MudItem>
                                                         <MudItem xs="3">
-                                                            <MudTextField Value="@(GetSetting(detector, KeyLabel))"
-                                                                          ValueChanged="@((string v) => SetSetting(detector, KeyLabel, v))"
-                                                                          Label="Target Label"
-                                                                          Variant="Variant.Outlined" />
+                                                            <MudTextField Value="onnx.Label"
+                                                                          ValueChanged="@((string v) => { onnx.Label = v; QueueSave(); })"
+                                                                          Label="Target Label" Variant="Variant.Outlined" />
                                                         </MudItem>
                                                         <MudItem xs="3">
-                                                            <MudNumericField T="float"
-                                                                             Value="@(GetSettingFloat(detector, KeyThreshold, 0.9f))"
-                                                                             ValueChanged="@((float v) => SetSettingFloat(detector, KeyThreshold, v))"
-                                                                             Label="Threshold"
-                                                                             Variant="Variant.Outlined"
+                                                            <MudNumericField T="float" Value="onnx.Threshold"
+                                                                             ValueChanged="@((float v) => { onnx.Threshold = v; QueueSave(); })"
+                                                                             Label="Threshold" Variant="Variant.Outlined"
                                                                              Min="0f" Max="1f" Step="0.05f" Format="F2" />
                                                         </MudItem>
                                                     </MudGrid>
@@ -400,15 +424,6 @@
     private List<RegionPreview.RegionItem> _regionItems = [];
 
     private static readonly string[] _regionColors = ["#00c8ff", "#00ff80", "#8000ff", "#ff8000", "#ff0080"];
-
-    // Setting key constants (avoids double-quote issues in Razor attributes)
-    private const string KeyTemplatePath = "templatePath";
-    private const string KeyThreshold = "threshold";
-    private const string KeyRatioThreshold = "ratioThreshold";
-    private const string KeyMinGoodMatches = "minGoodMatches";
-    private const string KeyPattern = "pattern";
-    private const string KeyModelPath = "modelPath";
-    private const string KeyLabel = "label";
 
     protected override void OnInitialized()
     {
@@ -572,25 +587,6 @@
         QueueSave();
     }
 
-    // Settings helpers for the dynamic Dictionary<string, JsonElement>
-    private static string GetSetting(EditableDetectorConfig d, string key) =>
-        d.RawSettings.TryGetValue(key, out var v) ? v : "";
-
-    private void SetSetting(EditableDetectorConfig d, string key, string value)
-    { d.RawSettings[key] = value; QueueSave(); }
-
-    private static float GetSettingFloat(EditableDetectorConfig d, string key, float fallback) =>
-        d.RawSettings.TryGetValue(key, out var v) && float.TryParse(v, out var f) ? f : fallback;
-
-    private void SetSettingFloat(EditableDetectorConfig d, string key, float value)
-    { d.RawSettings[key] = value.ToString("F2"); QueueSave(); }
-
-    private static int GetSettingInt(EditableDetectorConfig d, string key, int fallback) =>
-        d.RawSettings.TryGetValue(key, out var v) && int.TryParse(v, out var i) ? i : fallback;
-
-    private void SetSettingInt(EditableDetectorConfig d, string key, int value)
-    { d.RawSettings[key] = value.ToString(); QueueSave(); }
-
     private static readonly JsonSerializerOptions ExportJsonOptions = new()
     {
         WriteIndented = true,
@@ -600,13 +596,41 @@
 
     private async Task ExportProfile()
     {
-        if (_profile is null) return;
-        var json = JsonSerializer.Serialize(_profile.ToGameProfile(), ExportJsonOptions);
-        var fileName = $"{_selectedProfile ?? _profile.Name.ToLowerInvariant().Replace(' ', '-')}.json";
-        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
-        var base64 = Convert.ToBase64String(bytes);
-        await JS.InvokeVoidAsync("eval",
-            $"var a=document.createElement('a');a.href='data:application/json;base64,{base64}';a.download='{fileName}';document.body.appendChild(a);a.click();a.remove();");
+        if (_profile is null || string.IsNullOrEmpty(_selectedProfile)) return;
+        try
+        {
+            var json = JsonSerializer.Serialize(_profile.ToGameProfile(), ExportJsonOptions);
+
+            using var ms = new MemoryStream();
+            using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                var jsonEntry = zip.CreateEntry("profile.json", CompressionLevel.Optimal);
+                await using (var es = jsonEntry.Open())
+                await using (var sw = new StreamWriter(es))
+                    await sw.WriteAsync(json);
+
+                var baseDir = ProfileManager.GetProfileBaseDir(_selectedProfile);
+                if (Directory.Exists(baseDir))
+                {
+                    foreach (var file in Directory.EnumerateFiles(baseDir))
+                    {
+                        var entry = zip.CreateEntry($"assets/{Path.GetFileName(file)}", CompressionLevel.Optimal);
+                        await using var es = entry.Open();
+                        await using var fs = File.OpenRead(file);
+                        await fs.CopyToAsync(es);
+                    }
+                }
+            }
+
+            var fileName = $"{_selectedProfile}.sentryprofile";
+            var base64 = Convert.ToBase64String(ms.ToArray());
+            await JS.InvokeVoidAsync("eval",
+                $"var a=document.createElement('a');a.href='data:application/octet-stream;base64,{base64}';a.download='{fileName}';document.body.appendChild(a);a.click();a.remove();");
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Export failed: {ex.Message}", Severity.Error);
+        }
     }
 
     private async Task ImportProfile(IBrowserFile? file)
@@ -614,16 +638,57 @@
         if (file is null) return;
         try
         {
-            await using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024);
-            var profile = await JsonSerializer.DeserializeAsync<GameProfile>(stream, ExportJsonOptions);
-            if (profile is null)
-            {
-                SetStatus("Invalid profile file.", Severity.Error);
-                return;
-            }
+            // Buffer to memory so we can detect format and seek.
+            using var ms = new MemoryStream();
+            await using (var stream = file.OpenReadStream(maxAllowedSize: 64 * 1024 * 1024))
+                await stream.CopyToAsync(ms);
+            ms.Position = 0;
 
             var saveName = Path.GetFileNameWithoutExtension(file.Name);
-            ProfileManager.Save(saveName, profile);
+            GameProfile? profile = null;
+
+            // Detect zip by PK header
+            var isZip = ms.Length > 4 && ms.GetBuffer()[0] == 'P' && ms.GetBuffer()[1] == 'K';
+            if (isZip)
+            {
+                using var zip = new ZipArchive(ms, ZipArchiveMode.Read);
+                var jsonEntry = zip.GetEntry("profile.json")
+                    ?? zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".json", StringComparison.OrdinalIgnoreCase));
+                if (jsonEntry is null)
+                {
+                    SetStatus("Archive missing profile.json.", Severity.Error);
+                    return;
+                }
+
+                await using (var js = jsonEntry.Open())
+                    profile = await JsonSerializer.DeserializeAsync<GameProfile>(js, ExportJsonOptions);
+
+                if (profile is null) { SetStatus("Invalid profile file.", Severity.Error); return; }
+
+                ProfileManager.Save(saveName, profile);
+
+                var baseDir = ProfileManager.GetProfileBaseDir(saveName);
+                foreach (var entry in zip.Entries)
+                {
+                    if (entry.FullName.Equals("profile.json", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.IsNullOrEmpty(entry.Name)) continue; // directory
+                    var dest = Path.Combine(baseDir, entry.Name);
+                    await using var es = entry.Open();
+                    await using var fs = File.Create(dest);
+                    await es.CopyToAsync(fs);
+                }
+
+                // Re-save so cleanup keeps only referenced assets.
+                ProfileManager.Save(saveName, profile);
+            }
+            else
+            {
+                ms.Position = 0;
+                profile = await JsonSerializer.DeserializeAsync<GameProfile>(ms, ExportJsonOptions);
+                if (profile is null) { SetStatus("Invalid profile file.", Severity.Error); return; }
+                ProfileManager.Save(saveName, profile);
+            }
+
             RefreshProfiles();
             _selectedProfile = saveName;
             _profile = EditableGameProfile.From(profile);
@@ -637,6 +702,33 @@
     }
 
     private void SetStatus(string msg, Severity sev) { _statusMessage = msg; _statusSeverity = sev; }
+
+    private async Task ImportTemplateImage(EditableDetectorConfig detector, IBrowserFile? file)
+    {
+        if (file is null || string.IsNullOrEmpty(_selectedProfile)) return;
+        try
+        {
+            var baseDir = ProfileManager.GetProfileBaseDir(_selectedProfile);
+            var safeName = string.Concat(file.Name.Split(Path.GetInvalidFileNameChars()));
+            var destPath = Path.Combine(baseDir, safeName);
+            await using (var src = file.OpenReadStream(maxAllowedSize: 16 * 1024 * 1024))
+            await using (var dst = File.Create(destPath))
+            {
+                await src.CopyToAsync(dst);
+            }
+            switch (detector.Settings)
+            {
+                case OpenCvTemplateSettings t: t.TemplatePath = safeName; break;
+                case OpenCvSiftSettings s: s.TemplatePath = safeName; break;
+            }
+            QueueSave();
+            SetStatus($"Imported template '{safeName}'", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Template import failed: {ex.Message}", Severity.Error);
+        }
+    }
 
     private static Color GetBackendColor(DetectorBackendType b) => b switch
     {

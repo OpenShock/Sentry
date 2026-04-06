@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using OpenCvSharp;
@@ -38,27 +39,23 @@ public sealed class OcrDetector : IDetector
         Name = config.Name;
         _invertMatch = config.InvertMatch;
 
-        var language = Language.English;
-        if (config.Settings.TryGetValue("language", out var langEl))
-        {
-            var langStr = langEl.GetString()!;
-            if (!Enum.TryParse(langStr, ignoreCase: true, out language))
-                throw new InvalidOperationException($"Detector '{Name}': unknown language '{langStr}'");
-        }
+        var settings = config.Settings.Deserialize<OcrSettings>(DetectorJsonOptions.Default)
+            ?? throw new InvalidOperationException($"Detector '{Name}' missing Ocr settings");
 
-        if (!config.Settings.TryGetValue("pattern", out var patternEl))
+        var language = Language.English;
+        if (!string.IsNullOrEmpty(settings.Language)
+            && !Enum.TryParse(settings.Language, ignoreCase: true, out language))
+            throw new InvalidOperationException($"Detector '{Name}': unknown language '{settings.Language}'");
+
+        if (string.IsNullOrEmpty(settings.Pattern))
             throw new InvalidOperationException($"Detector '{Name}' missing required setting 'pattern'");
 
-        var patternStr = patternEl.GetString()!;
-        _pattern = new Regex(patternStr, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        _pattern = new Regex(settings.Pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         var engineMode = EngineMode.Default;
-        if (config.Settings.TryGetValue("engineMode", out var modeEl))
-        {
-            var modeStr = modeEl.GetString()!;
-            if (!Enum.TryParse(modeStr, ignoreCase: true, out engineMode))
-                throw new InvalidOperationException($"Detector '{Name}': unknown engine mode '{modeStr}'");
-        }
+        if (!string.IsNullOrEmpty(settings.EngineMode)
+            && !Enum.TryParse(settings.EngineMode, ignoreCase: true, out engineMode))
+            throw new InvalidOperationException($"Detector '{Name}': unknown engine mode '{settings.EngineMode}'");
 
         // Ensure tessdata directory and trained data exist
         Directory.CreateDirectory(_tessDataDir);
@@ -79,12 +76,16 @@ public sealed class OcrDetector : IDetector
 
         _logger.LogInformation(
             "Initialized OCR detector '{Name}' with pattern '{Pattern}', language {Language}",
-            Name, patternStr, language);
+            Name, settings.Pattern, language);
     }
 
     public DetectionResult Detect(Mat regionFrame)
     {
         if (_engine is null || _pattern is null)
+            return DetectionResult.NoMatch;
+
+        // Skip tiny regions that cause Tesseract/Leptonica bounding box errors
+        if (regionFrame.Empty() || regionFrame.Width < 10 || regionFrame.Height < 10)
             return DetectionResult.NoMatch;
 
         // Encode as BMP (no compression — much faster than PNG) into reusable buffer

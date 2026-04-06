@@ -33,10 +33,13 @@ public sealed class OpenCvSiftDetector : IDetector
     {
         Name = config.Name;
 
-        if (!config.Settings.TryGetValue("templatePath", out var templatePathEl))
+        var settings = config.Settings.Deserialize<OpenCvSiftSettings>(DetectorJsonOptions.Default)
+            ?? throw new InvalidOperationException($"Detector '{Name}' missing OpenCvSift settings");
+
+        if (string.IsNullOrEmpty(settings.TemplatePath))
             throw new InvalidOperationException($"Detector '{Name}' missing required setting 'templatePath'");
 
-        var templatePath = templatePathEl.GetString()!;
+        var templatePath = settings.TemplatePath;
         if (!Path.IsPathRooted(templatePath))
             templatePath = Path.Combine(profileBaseDir, templatePath);
 
@@ -47,12 +50,8 @@ public sealed class OpenCvSiftDetector : IDetector
         _templateSize = templateMat.Size();
 
         _invertMatch = config.InvertMatch;
-
-        if (config.Settings.TryGetValue("ratioThreshold", out var ratioEl))
-            _ratioThreshold = ratioEl.GetSingle();
-
-        if (config.Settings.TryGetValue("minGoodMatches", out var minMatchEl))
-            _minGoodMatches = minMatchEl.GetInt32();
+        _ratioThreshold = settings.RatioThreshold;
+        _minGoodMatches = settings.MinGoodMatches;
 
         _sift = SIFT.Create();
         _descTemplate = new Mat();

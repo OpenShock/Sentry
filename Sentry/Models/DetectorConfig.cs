@@ -9,5 +9,11 @@ public sealed class DetectorConfig
     public NormalizedRegion Region { get; set; } = NormalizedRegion.FullScreen;
     public string EventType { get; set; } = "";
     public bool InvertMatch { get; set; }
-    public Dictionary<string, JsonElement> Settings { get; set; } = new();
+    public bool RequireClear { get; set; }
+
+    /// <summary>
+    /// Backend-specific settings as a raw JSON object. Each detector backend
+    /// deserializes this into its own typed POCO at <c>Initialize</c> time.
+    /// </summary>
+    public JsonElement Settings { get; set; }
 }
