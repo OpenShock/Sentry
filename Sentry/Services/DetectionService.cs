@@ -284,18 +284,40 @@ public sealed class DetectionService : IAsyncDisposable
                 });
             }
 
-            if (d.Triggered != d.PreviouslyTriggered)
-                anyEdgeChange = true;
+            var rising = d.Triggered && !d.PreviouslyTriggered;
+            var falling = !d.Triggered && d.PreviouslyTriggered;
+            if (rising || falling) anyEdgeChange = true;
+
+            if (rising)
+            {
+                // Open a new log span on rising edge.
+                d.CurrentLogEntry = new DetectionLogEntry
+                {
+                    StartedAt = DateTime.Now,
+                    DetectorName = d.Detector.Name,
+                    EventType = d.Config.EventType,
+                    PeakConfidence = d.Confidence
+                };
+                DetectionLog.Enqueue(d.CurrentLogEntry);
+                while (DetectionLog.Count > MaxLogEntries) DetectionLog.TryDequeue(out _);
+            }
+            else if (d.Triggered && d.CurrentLogEntry is not null)
+            {
+                if (d.Confidence > d.CurrentLogEntry.PeakConfidence)
+                    d.CurrentLogEntry.PeakConfidence = d.Confidence;
+            }
+            else if (falling && d.CurrentLogEntry is not null)
+            {
+                d.CurrentLogEntry.EndedAt = DateTime.Now;
+                d.CurrentLogEntry = null;
+            }
 
             if (d.Triggered)
             {
                 // If RequireClear is set, only fire on rising edge (must clear before re-triggering)
-                var shouldFire = !d.Config.RequireClear || !d.PreviouslyTriggered;
+                var shouldFire = !d.Config.RequireClear || rising;
                 if (shouldFire)
-                {
-                    AddLogEntry(d.Detector.Name, d.Config.EventType, d.Confidence);
                     _ = _shockTrigger.HandleDetection(d.Config.EventType, _activeProfile!.Actions);
-                }
             }
             d.PreviouslyTriggered = d.Triggered;
         }
@@ -469,20 +491,6 @@ public sealed class DetectionService : IAsyncDisposable
 
     // ── Logging ──────��────────��────────────────────────────────────────
 
-    private void AddLogEntry(string detectorName, string eventType, float confidence)
-    {
-        DetectionLog.Enqueue(new DetectionLogEntry
-        {
-            Timestamp = DateTime.Now,
-            DetectorName = detectorName,
-            EventType = eventType,
-            Confidence = confidence
-        });
-
-        while (DetectionLog.Count > MaxLogEntries)
-            DetectionLog.TryDequeue(out _);
-    }
-
     private static Rect ClampRect(Rect rect, int maxWidth, int maxHeight)
     {
         var x = Math.Max(0, Math.Min(rect.X, maxWidth - 1));
@@ -501,10 +509,14 @@ public sealed class DetectionService : IAsyncDisposable
 
 public sealed class DetectionLogEntry
 {
-    public DateTime Timestamp { get; init; }
+    public DateTime StartedAt { get; init; }
+    public DateTime? EndedAt { get; set; }
     public required string DetectorName { get; init; }
     public required string EventType { get; init; }
-    public float Confidence { get; init; }
+    public float PeakConfidence { get; set; }
+
+    public TimeSpan Duration => (EndedAt ?? DateTime.Now) - StartedAt;
+    public bool IsActive => EndedAt is null;
 }
 
 /// <summary>
@@ -533,6 +545,7 @@ public sealed class ActiveDetector : IDisposable
 
     // Runtime state
     public bool PreviouslyTriggered { get; set; }
+    public DetectionLogEntry? CurrentLogEntry { get; set; }
 
     public ActiveDetector(IDetector detector, DetectorConfig config)
     {

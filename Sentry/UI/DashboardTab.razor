@@ -234,20 +234,33 @@
                 <MudSimpleTable Dense="true" Hover="true" Style="font-size: 0.85rem;">
                     <thead>
                         <tr>
-                            <th>Time</th>
+                            <th>Started</th>
                             <th>Detector</th>
                             <th>Event</th>
-                            <th>Confidence</th>
+                            <th>Duration</th>
+                            <th>Peak Conf.</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var entry in _logEntries)
                         {
                             <tr>
-                                <td>@entry.Timestamp.ToString("HH:mm:ss.fff")</td>
+                                <td>@entry.StartedAt.ToString("HH:mm:ss.fff")</td>
                                 <td>@entry.DetectorName</td>
                                 <td>@entry.EventType</td>
-                                <td>@entry.Confidence.ToString("P1")</td>
+                                <td style="font-family: monospace;">
+                                    @if (entry.IsActive)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Style="height: 16px;">
+                                            @FormatDuration(entry.Duration) ●
+                                        </MudChip>
+                                    }
+                                    else
+                                    {
+                                        @FormatDuration(entry.Duration)
+                                    }
+                                </td>
+                                <td>@entry.PeakConfidence.ToString("P1")</td>
                             </tr>
                         }
                     </tbody>
@@ -436,6 +449,11 @@
 
     private static string FormatRegion(NormalizedRegion r) =>
         $"({r.X:F2}, {r.Y:F2}) {r.Width:F2}x{r.Height:F2}";
+
+    private static string FormatDuration(TimeSpan d) =>
+        d.TotalSeconds < 1 ? $"{d.TotalMilliseconds:F0} ms"
+        : d.TotalMinutes < 1 ? $"{d.TotalSeconds:F2} s"
+        : $"{(int)d.TotalMinutes}m {d.Seconds:D2}s";
 
     private static Color GetBackendColor(DetectorBackendType b) => b switch
     {
