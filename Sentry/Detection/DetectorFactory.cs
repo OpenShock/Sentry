@@ -23,6 +23,7 @@ public sealed class DetectorFactory
             DetectorBackendType.OpenCvSift => new OpenCvSiftDetector(_loggerFactory.CreateLogger<OpenCvSiftDetector>()),
             DetectorBackendType.Ocr => new OcrDetector(_loggerFactory.CreateLogger<OcrDetector>(), Path.Combine(_moduleDataDir, "tessdata")),
             DetectorBackendType.Onnx => new OnnxDetector(_loggerFactory.CreateLogger<OnnxDetector>()),
+            DetectorBackendType.HealthBar => new HealthBarDetector(_loggerFactory.CreateLogger<HealthBarDetector>()),
             _ => throw new ArgumentOutOfRangeException(nameof(config.Backend), config.Backend, "Unknown detector backend")
         };
 

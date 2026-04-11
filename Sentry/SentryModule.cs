@@ -17,8 +17,8 @@ namespace OpenShock.Sentry;
 public class SentryModule : DesktopModuleBase
 {
     private const string ModuleId = "openshock.sentry";
-
-    public override string IconPath => "OpenShock/Sentry/Resources/sentry-icon.png";
+    
+    public override IconOneOf? Icon { get; set; } = IconOneOf.FromPath("OpenShock/Sentry/Resources/sentry-icon.png");
 
     public override IReadOnlyCollection<NavigationItem> NavigationComponents { get; } =
     [

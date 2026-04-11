@@ -84,7 +84,7 @@
     </MudCard>
 
     @* Global Action Limits *@
-    <MudCard Dense="true">
+    <MudCard>
         <MudCardContent Class="py-2">
             <MudStack Row="true" Spacing="4" AlignItems="AlignItems.Center">
                 <MudText Typo="Typo.caption" Style="min-width: 90px;">Intensity</MudText>
@@ -130,9 +130,9 @@
                         <MudIconButton Icon="@(_previewLive ? Icons.Material.Filled.Pause : Icons.Material.Filled.PlayArrow)"
                                        Color="@(_previewLive ? Color.Warning : Color.Success)"
                                        Size="Size.Small" OnClick="TogglePreview"
-                                       Title="@(_previewLive ? "Pause preview" : "Resume preview")" />
+                                       title="@(_previewLive ? "Pause preview" : "Resume preview")" />
                         <MudIconButton Icon="@Icons.Material.Filled.CameraAlt" Size="Size.Small"
-                                       OnClick="CaptureOneFrame" Title="Capture single frame"
+                                       OnClick="CaptureOneFrame" title="Capture single frame"
                                        Disabled="@_previewLive" />
                     </MudStack>
                 </MudStack>

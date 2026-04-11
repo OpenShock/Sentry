@@ -5,5 +5,6 @@ public enum DetectorBackendType
     OpenCvTemplate,
     OpenCvSift,
     Ocr,
-    Onnx
+    Onnx,
+    HealthBar
 }

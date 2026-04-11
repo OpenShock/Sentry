@@ -15,7 +15,7 @@ namespace OpenShock.Sentry.Services;
 /// Provides screen capture frames with detection overlays.
 /// Serves preview as an MJPEG stream over a local HTTP endpoint using EmbedIO.
 /// </summary>
-public sealed class PreviewService : IDisposable
+public sealed class PreviewService : IAsyncDisposable
 {
     private readonly ILogger<PreviewService> _logger;
     private readonly ScreenCaptureService _screenCapture;
@@ -334,11 +334,22 @@ public sealed class PreviewService : IDisposable
             _detectionOverlays.Clear();
         }
     }
+    
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        StopStream();
+        try
+        {
+            await StopStream();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to stop MJPEG stream on dispose");
+        }
+
         _resizedMat.Dispose();
+        _server?.Dispose();
+        _streamLock.Dispose();
     }
 }
 

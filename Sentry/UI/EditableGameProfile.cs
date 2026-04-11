@@ -107,6 +107,7 @@ public sealed class EditableDetectorConfig
         DetectorBackendType.OpenCvSift => new OpenCvSiftSettings(),
         DetectorBackendType.Ocr => new OcrSettings(),
         DetectorBackendType.Onnx => new OnnxSettings(),
+        DetectorBackendType.HealthBar => new HealthBarSettings(),
         _ => new OpenCvTemplateSettings()
     };
 
@@ -116,6 +117,7 @@ public sealed class EditableDetectorConfig
         DetectorBackendType.OpenCvSift => typeof(OpenCvSiftSettings),
         DetectorBackendType.Ocr => typeof(OcrSettings),
         DetectorBackendType.Onnx => typeof(OnnxSettings),
+        DetectorBackendType.HealthBar => typeof(HealthBarSettings),
         _ => typeof(OpenCvTemplateSettings)
     };
 }

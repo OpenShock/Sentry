@@ -38,12 +38,13 @@
                 </MudButton>
                 <MudFileUpload T="IBrowserFile" Accept=".sentryprofile,.zip,.json" FilesChanged="ImportProfile"
                                MaximumFileCount="1" Style="margin: 0;">
-                    <ActivatorContent>
+                    <CustomContent Context="fileUpload">
                         <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.FileUpload">
+                                   StartIcon="@Icons.Material.Filled.FileUpload"
+                                   OnClick="@(() => fileUpload.OpenFilePickerAsync())">
                             Import
                         </MudButton>
-                    </ActivatorContent>
+                    </CustomContent>
                 </MudFileUpload>
             </MudStack>
         </MudCardContent>
@@ -58,12 +59,12 @@
                     <MudItem xs="6">
                         <MudTextField Value="_profile.Name" Label="Profile Name"
                                       ValueChanged="@((string v) => { _profile.Name = v; QueueSave(); })"
-                                      Variant="Variant.Outlined" Dense="true" />
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
                     </MudItem>
                     <MudItem xs="4">
                         <MudTextField Value="_profile.ProcessName" Label="Process Name (optional)"
                                       ValueChanged="@((string? v) => { _profile.ProcessName = v; QueueSave(); })"
-                                      Variant="Variant.Outlined" Dense="true"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense"
                                       HelperText="e.g. helldivers2, javaw" />
                     </MudItem>
                     <MudItem xs="2" Class="d-flex align-center">
@@ -87,7 +88,7 @@
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                         <MudText Typo="Typo.h6">Region Preview</MudText>
                         <MudIconButton Icon="@Icons.Material.Filled.CameraAlt" Size="Size.Small"
-                                       OnClick="CapturePreview" Title="Capture screenshot for region preview" />
+                                       OnClick="CapturePreview" title="Capture screenshot for region preview" />
                     </MudStack>
                 </CardHeaderContent>
             </MudCardHeader>
@@ -140,7 +141,7 @@
                                         <MudSpacer />
                                         <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
                                                        Size="Size.Small" OnClick="() => RemoveDetector(index)"
-                                                       Title="Remove detector" />
+                                                       title="Remove detector" />
                                     </MudStack>
                                 </TitleContent>
                                 <ChildContent>
@@ -226,11 +227,12 @@
                                                                 <MudFileUpload T="IBrowserFile" Accept=".png,.jpg,.jpeg,.bmp"
                                                                                FilesChanged="@(f => ImportTemplateImage(detector, f))"
                                                                                MaximumFileCount="1">
-                                                                    <ActivatorContent>
+                                                                    <CustomContent Context="fileUpload">
                                                                         <MudIconButton Icon="@Icons.Material.Filled.Image"
                                                                                        Color="Color.Primary" Size="Size.Small"
-                                                                                       Title="Pick template image" />
-                                                                    </ActivatorContent>
+                                                                                       title="Pick template image"
+                                                                                       OnClick="@(() => fileUpload.OpenFilePickerAsync())" />
+                                                                    </CustomContent>
                                                                 </MudFileUpload>
                                                             </MudStack>
                                                         </MudItem>
@@ -254,11 +256,12 @@
                                                                 <MudFileUpload T="IBrowserFile" Accept=".png,.jpg,.jpeg,.bmp"
                                                                                FilesChanged="@(f => ImportTemplateImage(detector, f))"
                                                                                MaximumFileCount="1">
-                                                                    <ActivatorContent>
+                                                                    <CustomContent Context="fileUpload">
                                                                         <MudIconButton Icon="@Icons.Material.Filled.Image"
                                                                                        Color="Color.Primary" Size="Size.Small"
-                                                                                       Title="Pick template image" />
-                                                                    </ActivatorContent>
+                                                                                       title="Pick template image"
+                                                                                       OnClick="@(() => fileUpload.OpenFilePickerAsync())" />
+                                                                    </CustomContent>
                                                                 </MudFileUpload>
                                                             </MudStack>
                                                         </MudItem>
@@ -281,6 +284,47 @@
                                                                   ValueChanged="@((string v) => { ocr.Pattern = v; QueueSave(); })"
                                                                   Label="Regex Pattern" Variant="Variant.Outlined"
                                                                   HelperText="e.g. (?i)you died|killed in action" />
+                                                    break;
+                                                case HealthBarSettings hb:
+                                                    <MudGrid Spacing="2">
+                                                        <MudItem xs="4">
+                                                            <MudSelect T="HealthBarOrientation" Value="hb.Orientation"
+                                                                       ValueChanged="@((HealthBarOrientation v) => { hb.Orientation = v; QueueSave(); })"
+                                                                       Label="Orientation" Variant="Variant.Outlined" Dense="true">
+                                                                @foreach (var o in Enum.GetValues<HealthBarOrientation>())
+                                                                {
+                                                                    <MudSelectItem Value="o">@o</MudSelectItem>
+                                                                }
+                                                            </MudSelect>
+                                                        </MudItem>
+                                                        <MudItem xs="4">
+                                                            <MudNumericField T="int" Value="hb.BrightnessThreshold"
+                                                                             ValueChanged="@((int v) => { hb.BrightnessThreshold = v; QueueSave(); })"
+                                                                             Label="Brightness Threshold (0–255)" Variant="Variant.Outlined"
+                                                                             Min="0" Max="255" />
+                                                        </MudItem>
+                                                        <MudItem xs="4">
+                                                            <MudNumericField T="float" Value="hb.SliceFillRatio"
+                                                                             ValueChanged="@((float v) => { hb.SliceFillRatio = v; QueueSave(); })"
+                                                                             Label="Slice Fill Ratio" Variant="Variant.Outlined"
+                                                                             Min="0f" Max="1f" Step="0.05f" Format="F2"
+                                                                             HelperText="Fraction of perpendicular pixels needed to count a slice as filled" />
+                                                        </MudItem>
+                                                        <MudItem xs="6">
+                                                            <MudNumericField T="float" Value="hb.MinDropDelta"
+                                                                             ValueChanged="@((float v) => { hb.MinDropDelta = v; QueueSave(); })"
+                                                                             Label="Min Drop Delta" Variant="Variant.Outlined"
+                                                                             Min="0.01f" Max="1f" Step="0.01f" Format="F2"
+                                                                             HelperText="Trigger when fill drops this much below the baseline" />
+                                                        </MudItem>
+                                                        <MudItem xs="6">
+                                                            <MudNumericField T="float" Value="hb.BaselineDecay"
+                                                                             ValueChanged="@((float v) => { hb.BaselineDecay = v; QueueSave(); })"
+                                                                             Label="Baseline Decay" Variant="Variant.Outlined"
+                                                                             Min="0f" Max="1f" Step="0.005f" Format="F3"
+                                                                             HelperText="0 = sticky baseline; small values forget slow drains" />
+                                                        </MudItem>
+                                                    </MudGrid>
                                                     break;
                                                 case OnnxSettings onnx:
                                                     <MudGrid Spacing="2">
@@ -355,12 +399,12 @@
                                     <td>
                                         <MudTextField T="string" Value="action.EventType"
                                                       ValueChanged="@((string v) => { action.EventType = v; QueueSave(); })"
-                                                      Variant="Variant.Text" Dense="true" />
+                                                      Variant="Variant.Text" Margin="Margin.Dense" />
                                     </td>
                                     <td>
                                         <MudSelect T="ControlType" Value="action.ControlType"
                                                    ValueChanged="@((ControlType v) => { action.ControlType = v; QueueSave(); })"
-                                                   Variant="Variant.Text" Dense="true" DisableUnderLine="true">
+                                                   Variant="Variant.Text" Margin="Margin.Dense" Underline="false">
                                             @foreach (var ct in Enum.GetValues<ControlType>())
                                             {
                                                 <MudSelectItem Value="ct">@ct</MudSelectItem>
@@ -370,19 +414,19 @@
                                     <td>
                                         <MudNumericField T="byte" Value="action.Intensity"
                                                          ValueChanged="@((byte v) => { action.Intensity = v; QueueSave(); })"
-                                                         Variant="Variant.Text" Dense="true" HideSpinButtons="true"
+                                                         Variant="Variant.Text" Margin="Margin.Dense" HideSpinButtons="true"
                                                          Min="(byte)1" Max="(byte)100" />
                                     </td>
                                     <td>
                                         <MudNumericField T="ushort" Value="action.Duration"
                                                          ValueChanged="@((ushort v) => { action.Duration = v; QueueSave(); })"
-                                                         Variant="Variant.Text" Dense="true" HideSpinButtons="true"
+                                                         Variant="Variant.Text" Margin="Margin.Dense" HideSpinButtons="true"
                                                          Min="(ushort)300" Max="(ushort)30000" />
                                     </td>
                                     <td>
                                         <MudNumericField T="int" Value="action.CooldownMs"
                                                          ValueChanged="@((int v) => { action.CooldownMs = v; QueueSave(); })"
-                                                         Variant="Variant.Text" Dense="true" HideSpinButtons="true"
+                                                         Variant="Variant.Text" Margin="Margin.Dense" HideSpinButtons="true"
                                                          Min="100" Max="60000" />
                                     </td>
                                     <td>
@@ -736,6 +780,7 @@
         DetectorBackendType.OpenCvSift => Color.Secondary,
         DetectorBackendType.Ocr => Color.Tertiary,
         DetectorBackendType.Onnx => Color.Warning,
+        DetectorBackendType.HealthBar => Color.Success,
         _ => Color.Default
     };
 
