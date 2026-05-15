@@ -5,6 +5,7 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   build:
@@ -31,26 +32,3 @@ jobs:
           name: OpenShock.Sentry.module
           path: publish/OpenShock.Sentry.module.zip
           if-no-files-found: error
-
-  # Create a draft GitHub release for stable tags
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.')
-    permissions:
-      contents: write
-    steps:
-      - name: Download module artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: OpenShock.Sentry.module
-          path: artifacts/
-
-      - name: Create draft release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          draft: true
-          generate_release_notes: true
-          files: artifacts/OpenShock.Sentry.module.zip

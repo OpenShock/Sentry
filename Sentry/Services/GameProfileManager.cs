@@ -161,6 +161,64 @@ public sealed class GameProfileManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Raised after a successful rename so other services (e.g. DetectionService)
+    /// can update any state keyed by the old name.
+    /// </summary>
+    public event Action<string, string>? ProfileRenamed;
+
+    public enum RenameResult
+    {
+        Success,
+        NoChange,
+        InvalidName,
+        SourceMissing,
+        TargetExists
+    }
+
+    /// <summary>
+    /// Renames a profile by moving its directory. Any pending debounced save
+    /// targeting the old name is redirected to the new name.
+    /// </summary>
+    public RenameResult Rename(string oldName, string newName)
+    {
+        if (string.Equals(oldName, newName, StringComparison.Ordinal)) return RenameResult.NoChange;
+        if (!IsValidProfileName(newName)) return RenameResult.InvalidName;
+
+        var srcDir = Path.Combine(_profilesDir, oldName);
+        var dstDir = Path.Combine(_profilesDir, newName);
+
+        if (!Directory.Exists(srcDir)) return RenameResult.SourceMissing;
+        if (Directory.Exists(dstDir)) return RenameResult.TargetExists;
+
+        lock (_saveTimer)
+        {
+            if (_pendingSaveName == oldName) _pendingSaveName = newName;
+        }
+
+        _saveLock.Wait();
+        try
+        {
+            Directory.Move(srcDir, dstDir);
+        }
+        finally
+        {
+            _saveLock.Release();
+        }
+
+        _logger.LogInformation("Renamed profile '{OldName}' → '{NewName}'", oldName, newName);
+        ProfileRenamed?.Invoke(oldName, newName);
+        return RenameResult.Success;
+    }
+
+    public static bool IsValidProfileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        if (name is "." or "..") return false;
+        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return false;
+        return true;
+    }
+
     private static IEnumerable<string> GetReferencedAssets(DetectorConfig det)
     {
         if (det.Settings.ValueKind != JsonValueKind.Object) return [];

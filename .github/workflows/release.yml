@@ -8,25 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Publish & pack module
-        run: dotnet publish Sentry/Sentry.csproj --configuration Release -o publish
-
-      - name: Upload module artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenShock.Sentry.module
-          path: publish/OpenShock.Sentry.module.zip
-          if-no-files-found: error
+    uses: ./.github/workflows/build.yml
 
   # Create a draft GitHub release for stable tags (skip -rc.* prereleases)
   release:

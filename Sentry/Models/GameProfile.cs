@@ -2,7 +2,6 @@ namespace OpenShock.Sentry.Models;
 
 public sealed class GameProfile
 {
-    public required string Name { get; set; }
     public string? ProcessName { get; set; }
     public bool PerRegionCapture { get; set; } = true;
     public bool ParallelDetection { get; set; }

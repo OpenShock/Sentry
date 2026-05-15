@@ -10,7 +10,6 @@ namespace OpenShock.Sentry.UI;
 /// </summary>
 public sealed class EditableGameProfile
 {
-    public string Name { get; set; } = "";
     public string? ProcessName { get; set; }
     public bool PerRegionCapture { get; set; } = true;
     public bool ParallelDetection { get; set; }
@@ -19,7 +18,6 @@ public sealed class EditableGameProfile
 
     public static EditableGameProfile From(GameProfile profile) => new()
     {
-        Name = profile.Name,
         ProcessName = profile.ProcessName,
         PerRegionCapture = profile.PerRegionCapture,
         ParallelDetection = profile.ParallelDetection,
@@ -29,7 +27,6 @@ public sealed class EditableGameProfile
 
     public GameProfile ToGameProfile() => new()
     {
-        Name = Name,
         ProcessName = ProcessName,
         PerRegionCapture = PerRegionCapture,
         ParallelDetection = ParallelDetection,
