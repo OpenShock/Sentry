@@ -5,6 +5,7 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   build:
@@ -12,10 +13,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7  # v5.2.0
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1  # v5.4.0
         with:
           dotnet-version: '10.0.x'
 
@@ -31,26 +32,3 @@ jobs:
           name: OpenShock.Sentry.module
           path: publish/OpenShock.Sentry.module.zip
           if-no-files-found: error
-
-  # Create a draft GitHub release for stable tags
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.')
-    permissions:
-      contents: write
-    steps:
-      - name: Download module artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: OpenShock.Sentry.module
-          path: artifacts/
-
-      - name: Create draft release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          draft: true
-          generate_release_notes: true
-          files: artifacts/OpenShock.Sentry.module.zip

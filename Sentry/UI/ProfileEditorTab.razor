@@ -57,9 +57,13 @@
             <MudCardContent>
                 <MudGrid>
                     <MudItem xs="6">
-                        <MudTextField Value="_profile.Name" Label="Profile Name"
-                                      ValueChanged="@((string v) => { _profile.Name = v; QueueSave(); })"
-                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudTextField T="string" Value="_selectedProfile"
+                                      ValueChanged="@((string? v) => CommitRename(v ?? string.Empty))"
+                                      Label="Profile Name"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      Error="@(!string.IsNullOrEmpty(_renameError))"
+                                      ErrorText="@_renameError"
+                                      HelperText="Renames the profile folder on commit (Enter / blur)." />
                     </MudItem>
                     <MudItem xs="4">
                         <MudTextField Value="_profile.ProcessName" Label="Process Name (optional)"
@@ -464,6 +468,7 @@
     private int _selectedDetectorIndex = -1;
     private string? _statusMessage;
     private Severity _statusSeverity = Severity.Info;
+    private string? _renameError;
     private RegionPreview? _regionPreview;
     private List<RegionPreview.RegionItem> _regionItems = [];
 
@@ -491,12 +496,55 @@
 
     private void NewProfile()
     {
-        var name = "new-profile";
-        _profile = new EditableGameProfile { Name = "New Profile" };
+        var name = GetUniqueProfileName("new-profile");
+        _profile = new EditableGameProfile();
         ProfileManager.Save(name, _profile.ToGameProfile());
         _selectedProfile = name;
         RefreshProfiles();
         _regionItems = [];
+    }
+
+    private string GetUniqueProfileName(string baseName)
+    {
+        var existing = new HashSet<string>(_profiles, StringComparer.OrdinalIgnoreCase);
+        if (!existing.Contains(baseName)) return baseName;
+        for (var i = 2; ; i++)
+        {
+            var candidate = $"{baseName}-{i}";
+            if (!existing.Contains(candidate)) return candidate;
+        }
+    }
+
+    private void CommitRename(string newName)
+    {
+        _renameError = null;
+        if (string.IsNullOrEmpty(_selectedProfile)) return;
+
+        var oldName = _selectedProfile;
+        var result = ProfileManager.Rename(oldName, newName);
+        switch (result)
+        {
+            case GameProfileManager.RenameResult.Success:
+                _selectedProfile = newName;
+                if (ModuleConfig.Config.ActiveProfileName == oldName)
+                {
+                    ModuleConfig.Config.ActiveProfileName = newName;
+                    ModuleConfig.SaveDeferred();
+                }
+                RefreshProfiles();
+                break;
+            case GameProfileManager.RenameResult.NoChange:
+                break;
+            case GameProfileManager.RenameResult.InvalidName:
+                _renameError = "Invalid profile name (empty or contains invalid characters).";
+                break;
+            case GameProfileManager.RenameResult.SourceMissing:
+                _renameError = "Source profile no longer exists.";
+                break;
+            case GameProfileManager.RenameResult.TargetExists:
+                _renameError = $"A profile named '{newName}' already exists.";
+                break;
+        }
     }
 
     private void DeleteProfile()

@@ -74,6 +74,16 @@ public sealed class DetectionService : IAsyncDisposable
         _shockTrigger = shockTrigger;
         _profileManager = profileManager;
         _previewService = previewService;
+        _profileManager.ProfileRenamed += OnProfileRenamed;
+    }
+
+    private void OnProfileRenamed(string oldName, string newName)
+    {
+        if (ActiveProfileName == oldName)
+        {
+            ActiveProfileName = newName;
+            OnStateChanged?.Invoke();
+        }
     }
 
     public async Task LoadProfile(string profileName)
@@ -502,6 +512,7 @@ public sealed class DetectionService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _profileManager.ProfileRenamed -= OnProfileRenamed;
         await StopAsync();
         UnloadProfile();
     }
