@@ -25,10 +25,15 @@ jobs:
           path: artifacts/
 
       - name: Create draft release
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          draft: true
-          generate_release_notes: true
-          files: artifacts/OpenShock.Sentry.module.zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          TITLE: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$TITLE" \
+            --draft \
+            --generate-notes \
+            artifacts/OpenShock.Sentry.module.zip
