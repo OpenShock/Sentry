@@ -37,7 +37,7 @@
         <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
         <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260330" />
         <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260330" />
-        <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260302" />
+        <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20261107" />
         <PackageReference Include="OpenShock.Desktop.ModuleBase" Version="1.1.4" />
         <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.5" />
         <PackageReference Include="System.Drawing.Common" Version="10.0.5" />
